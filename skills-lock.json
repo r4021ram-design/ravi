@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "edge-strategy-reviewer": {
+      "source": "tradermonty/claude-trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/edge-strategy-reviewer/SKILL.md",
+      "computedHash": "52f89bb0b37e34ff8a5a6338cec538b1859a7080aa6e87ae38db6b761290322c"
+    },
+    "market-environment-analysis": {
+      "source": "tradermonty/claude-trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/market-environment-analysis/SKILL.md",
+      "computedHash": "a1ed805c2f74eee2010e3449c7e9f150709206872df76ab0974ffa94c0776b1e"
+    },
+    "options-strategy-advisor": {
+      "source": "tradermonty/claude-trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/options-strategy-advisor/SKILL.md",
+      "computedHash": "c2a233dded4efce5b0a18380469096b8d6f3dd78f8bc32b97d843b008ade73a8"
+    },
+    "technical-analyst": {
+      "source": "tradermonty/claude-trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/technical-analyst/SKILL.md",
+      "computedHash": "053cb6c2af39857c83e6e16ff1baa0fccc01aa80f4d0a32fe94c06d4e8337116"
+    }
+  }
+}

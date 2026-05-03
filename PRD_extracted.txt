@@ -1,0 +1,201 @@
+Daily NSE Stock & Options Report App – Product Requirements Document
+1. Executive Summary and Goals
+This product delivers a daily, data-driven options report for Indian markets (NSE). It targets active traders (intraday, derivatives), proprietary trading desks, and retail investors. Key goals are to provide a concise pre-market briefing with actionable analytics: index trends, options chain insights, stock signals, and macro cues. Users (traders/analysts) can quickly gauge market bias, identify opportunities, and manage risk each morning. The app must reliably fetch and synthesize NSE equity/derivatives data, global indicators (US indices, crude, USD/INR), volatility (India VIX), and FII/DII flows into an easy-to-digest daily report.
+2. Features & Prioritization
+Core (MVP): Real-time market data ingestion (NIFTY 50, BANK NIFTY, FINNIFTY quotes, options chain with CE/PE OI, IV, PCR, Max Pain); India VIX; FII/DII net flows; global cues (US indexes, SGX Nifty, Brent oil, USD/INR); automated daily report generation (JSON export and on-screen summary); basic dashboard (index cards, watchlist).
+Version 1: User accounts and roles (trader, admin), scheduling (daily email/SMS notification), watchlist customization, alerts/notifications (e.g. index breakout, custom stock triggers), strategy builder UI (predefined spreads, straddles). JSON report API endpoint (see Data Models).
+Version 2: Advanced analytics (AI insights, custom scans), historical backtesting of strategies, multi-day reports (weekly), collaboration/sharing, mobile app support, audit logs for data retrieval and user actions.
+3. Data Architecture
+Sources & APIs:
+NSE India: Official data for indices, equities, options, FII/DII. For example, NSE publishes end-of-day FII/DII CSVs[1]. Exchange APIs (or licensed feeds) provide indices and option chains. The stock-nse-india tool demonstrates available NSE endpoints (equity data, indices including option chains)[4].
+India VIX: Via NSE (custom API or scraped values) or financial feeds (e.g. Kotak NEO)[5].
+Global Data: Alpha Vantage or Yahoo/Exchange APIs for US indices, commodity (Brent WTI) prices, forex. For example, Alpha Vantage offers commodities (Crude Oil WTI/Brent) and FX endpoints[2][3].
+SGX Nifty: Singapore Exchange data (NIFTY futures on SGX) via SGX APIs or chart sources.
+Data Ingestion:
+Likely polling schedule (e.g. every minute or on-demand) for live intraday data; batch at EOD/pre-open for summary metrics. Real-time streaming (websocket) may be used for ticker updates if licensed (many official feeds are multicast tick feed[6]).
+Caching: Persist raw quotes and computed values in a database (e.g. time-series DB + relational store). In-memory caches (Redis) for latest index values to speed up frontend.
+Data Retention: Store detailed time-series for last 1+ year for historical reference. Summary records (daily open/close/OI) indefinitely for trend analysis.
+Processing:
+ETL pipeline: Normalize incoming feeds (NSE, third-party). Compute indicators (PCR, Max Pain, volatility measures).
+Fallback Rules: If a source fails, label fields "data not available" in output JSON. For example, if FII feed is missing, still generate report with notice (as per spec) and log error.
+Data Reconciliation: Cross-check similar metrics (e.g. NIFTY level from NSE vs vendor) to detect anomalies. Log discrepancies for QA.
+Mermaid: System Architecture
+graph LR
+    A[NSE & Market Data Sources] --> B(Data Ingestion Service)
+    C[Global Data APIs] --> B
+    B --> D[(Database / Cache)]
+    B --> E[Compute Engine (analytics)]
+    D --> F[Web Backend / API Server]
+    E --> F
+    F --> G[Web/Mobile Frontend]
+    E --> H[Notification/Alert Service]
+    H --> I[Email/SMS Service]
+4. Data Models & JSON Schema
+The daily report output JSON includes the specified sections. Example schema (TypeScript-like) and sample payload:
+{
+  "market_overview": {
+    "global_markets": [
+      "US indices record-highs (Dow up 1.62%, S&P500 +1.02%)[4]",
+      "SGX Nifty up 0.7% (bullish pre-open)",
+      "Crude ~\$114 (+3.7%)[2]; USD/INR ~94.8"
+    ],
+    "india_opening_bias": "Bullish",
+    "macro_factors": [
+      "Fed meeting this week (dovish expected)",
+      "Crude oil surge (inflation watch)",
+      "Rupee weakness vs USD"
+    ]
+  },
+  "index_analysis": {
+    "NIFTY 50": {
+      "trend": "Range-bound",
+      "support": [23751, 23598],
+      "resistance": [24244, 24397],
+      "PCR": null,
+      "max_pain": null,
+      "OI_build_up": null,
+      "intraday_bias": "Neutral/Bearish"
+    },
+    "BANK NIFTY": {
+      "trend": "Consolidation (bearish bias)",
+      "support": [54132, 53679],
+      "resistance": [55595, 56048],
+      "PCR": null,
+      "max_pain": null,
+      "OI_build_up": null,
+      "intraday_bias": "Neutral/Bearish"
+    },
+    "FINNIFTY": {
+      "trend": "Weak (down)",
+      "support": [27358, 26986],
+      "resistance": [28559, 28931],
+      "PCR": null,
+      "max_pain": null,
+      "OI_build_up": null,
+      "intraday_bias": "Bearish"
+    }
+  },
+  "options_chain": {
+    "highest_call_OI": "Strikes ~24400–24600 (resistance zone)",
+    "highest_put_OI": "Strikes ~23500–23600 (support zone)",
+    "OI_change": "Call accumulation, modest put-selling",
+    "smart_money": "Heavy FII selling (–₹8048cr)[1], DIIs +₹3487cr"
+  },
+  "stocks": [
+    {
+      "symbol": "BAJAJ-AUTO",
+      "reason": "Bullish breakout (↑5.2%)[4] on high volume",
+      "levels": {"entry": 4200, "stoploss": 4100, "target": 4500},
+      "options_strategy": "Buy 4200 CE (bull call)"
+    }
+    /* additional stock objects */
+  ],
+  "strategies": [
+    {
+      "name": "Nifty Iron Condor",
+      "type": "Neutral",
+      "details": "Sell 24500CE & 23500PE, buy 24700CE & 23300PE (July expiry). Limited-risk range trade[4].",
+      "entry": 24100,
+      "strike_selection": "Sell 24500CE/23500PE; buy 24700CE/23300PE",
+      "risk_reward": "Limited",
+      "market_condition": "Range-bound"
+    }
+    /* additional strategies */
+  ],
+  "fii_dii": {
+    "net_FII": -8048,
+    "net_DII": 3487,
+    "analysis": "FIIs sold ~₹8048cr on Apr 30[1]; DIIs bought ₹3487cr. Net selling pressure."
+  },
+  "volatility": {
+    "India_VIX": 18.46,
+    "change": "+5.85%",
+    "interpretation": "Moderate volatility (VIX ~18.5)[5], ~200pt Nifty range expectation.",
+    "expected_range": "~23900–24500"
+  },
+  "trading_plan": {
+    "best_case": [
+      "Nifty holds >24,200 and rallies above 24,500 (bullish continuation).",
+      "BankNifty >55,000 moves to ~56,300."
+    ],
+    "worst_case": [
+      "Nifty breaks <23,800, falling to ~23,500.",
+      "BankNifty <54,600 (supports breached)."
+    ],
+    "no_trade_zone": [
+      "Nifty trades 23,950–24,200 range – avoid new bets until breakout."
+    ],
+    "summary": "Range-bound bias; sell on rallies near resistance unless Nifty decisively breaks out[4]."
+  }
+}
+API Endpoints (REST) – Sample mapping:
+Sample Daily Report Request/Response:
+GET /api/report/daily?date=2026-05-01
+
+Response 200 OK:
+{
+  "market_overview": { ... },
+  "index_analysis": { ... },
+  /* etc. */
+}
+
+Response 400 Bad Request:
+{ "error": "Invalid date format or data unavailable" }
+5. UX/UI Design
+
+Figure: Example dashboard displaying indices, VIX, and options chart (mockup). The app will feature a dashboard summarizing market status (NIFTY, Bank Nifty, VIX, global cues) with visual charts (intraday line chart, OI heatmap). A report composer page presents the generated daily report (accordion or sections for each category). Users can click into a stock detail view for charts and options chain of individual stocks. An options chain viewer UI will show strikes, OI, and IV with filter/sort. The strategy builder page lets users select strategy type (iron condor, straddle, etc.), choose strikes and expiry, and preview payoff/RR. Layouts will be responsive: desktop web and mobile app share components. Notifications (pop-ups, email/SMS) will follow platform UX conventions.
+6. Update Cadence & SLAs
+Real-time data (quotes, options) updated every minute during market hours; UI shows last-updated timestamp.
+Daily report generation: scheduled ~8:00 AM IST each trading day (after pre-open data available), with <1 minute processing time goal.
+Latency targets: backend fetch latency <5s per source; end-to-end API response <500ms.
+Retries & Backoff: Automated retry (3 attempts) on transient API failures with exponential backoff.
+Freshness Indicator: Dashboard shows “Last updated X sec ago”; red highlight if data older than 5 minutes.
+7. Security, Compliance & Rate-Limiting
+Authentication: OAuth2 login (or JWT) for user accounts; API key for partner access.
+Encryption: TLS for all data in transit; sensitive data (API keys) encrypted at rest.
+Rate Limiting: Throttle outbound API calls per provider limits (e.g. Alpha Vantage free tier limits ~5 calls/min). Implement 429 handling and fallback.
+Data Licensing: Comply with NSE Data Sharing Policy[7] – obtain necessary licenses for redistributing NSE data. Include NSE attribution (via link/logo in UI).
+User Privacy: Store only necessary user data; GDPR-equivalent policies (though India-based).
+Audit Log: Track data fetch jobs and user actions for compliance.
+8. Testing & Monitoring
+Unit & Integration Tests: Cover data parsing, business logic, report generation (using Jest/PyTest).
+Synthetic Data Feeds: Simulate missing/bad data scenarios; ensure fallback (fields = "data not available").
+Monitoring Dashboards: Track API health (uptime, error rates), data freshness, and queue lengths (e.g. via Grafana).
+Alerts: Trigger on failed data pulls or report generation (>1 consecutive failure).
+Sample SLA: ≥99.5% uptime; email alert if failed report >1 hour after scheduled time.
+9. Operational Runbook
+Incident Response: On data-source outage, switch to cached values or mark metrics unavailable. Page should display “Data not available” flags.
+Failover: If primary API fails, optionally use backup (e.g. Yahoo finance as fallback for index quotes).
+Degraded Mode: Partial report possible – e.g., if FII data missing, still send market overview and stocks sections with note.
+Rollback Plan: CI/CD pipeline with versioned releases; database rollbacks if schema issues.
+Maintenance Windows: Off-hours (weekends) for major upgrades.
+10. Metrics & KPIs
+Uptime: 99.5%+ (excluding scheduled maintenance).
+Data Freshness: 95% of data points <2 min stale.
+Report Latency: <1 minute from trigger to API output for daily report.
+User Engagement: Daily active users, number of reports generated.
+Accuracy: <1% discrepancy in key figures (cross-validate with exchange figures).
+11. Roadmap & Estimates
+
+Assumptions: India-based hosting, small initial user base (<5k), budget for premium data (NSE license) as needed.
+12. Acceptance Criteria & QA Checklist
+Data Accuracy: Spot-check output vs NSE published values (indices, futures, FII figures).
+Report Structure: All sections (market_overview, index_analysis, etc.) present even if empty.
+API Contract: JSON keys/types match schema, HTTP statuses correct (200/400/500).
+UI/UX: Key workflows (login, view report, add alert, build strategy) work on Chrome/Safari/Firefox.
+Performance: Report generation within defined latency; UI loads within 2s.
+Security: No sensitive data leak; OWASP basic scan passed.
+Error Handling: Simulate missing data (e.g. no internet); app logs error and shows “data not available”.
+
+[1]  FII/FPI & DII trading activity on NSE, BSE and MSEI Reports - NSE India 
+https://www.nseindia.com/reports/fii-dii
+[2] [3] API Documentation | Alpha Vantage
+https://www.alphavantage.co/documentation/
+[4] GitHub - hi-imcodeman/stock-nse-india: API for National Stock Exchange of India (NSE) · GitHub
+https://github.com/hi-imcodeman/stock-nse-india
+[5] India VIX Today (INDEXNSE: INDIA_VIX) | Live Chart & Market Volatility
+https://www.kotakneo.com/indices/indian-indices/india-vix/
+[6]  Real Time Data - NSE India 
+https://www.nseindia.com/static/market-data/real-time-data-subscription
+[7]  NSE - National Stock Exchange of India Ltd. 
+https://www.nseindia.com/static/market-data/nse-data-policy

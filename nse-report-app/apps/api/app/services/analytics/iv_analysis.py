@@ -1,0 +1,286 @@
+"""
+IV Analysis Service
+Provides IV skew, surface, and term structure analytics for options.
+"""
+
+import logging
+from typing import Optional
+from datetime import datetime
+
+from app.services.data_ingestion.nse_fetcher import nse_fetcher
+
+logger = logging.getLogger(__name__)
+
+
+class IVAnalyzer:
+    """
+    Analyzes Implied Volatility across strikes and expiries.
+    """
+
+    def calculate_iv_skew(self, oi_data: dict) -> Optional[dict]:
+        """
+        Calculate IV skew metrics for a single expiry's option chain.
+
+        Returns:
+            - atm_iv_ce / atm_iv_pe: IV at the ATM strike
+            - otm_put_iv: avg IV of OTM puts (5 strikes below ATM)
+            - otm_call_iv: avg IV of OTM calls (5 strikes above ATM)
+            - skew_ratio: otm_put_iv / otm_call_iv (>1 = put skew / fear)
+            - smile_data: [{strike, ce_iv, pe_iv}, ...] for charting
+        """
+        if not oi_data or not oi_data.get("strikes"):
+            return None
+
+        underlying = oi_data.get("underlying_value", 0)
+        strikes = oi_data["strikes"]
+
+        if not underlying or not strikes:
+            return None
+
+        # Build smile data (strikes with valid IV)
+        smile_data = []
+        for s in strikes:
+            ce_iv = s.get("CE", {}).get("iv", 0)
+            pe_iv = s.get("PE", {}).get("iv", 0)
+            if ce_iv > 0 or pe_iv > 0:
+                smile_data.append({
+                    "strike": s["strikePrice"],
+                    "ce_iv": ce_iv,
+                    "pe_iv": pe_iv,
+                })
+
+        if len(smile_data) < 5:
+            return None
+
+        # Find ATM strike (closest to underlying)
+        sorted_by_dist = sorted(smile_data, key=lambda x: abs(x["strike"] - underlying))
+        atm = sorted_by_dist[0]
+
+        # OTM Calls = strikes above ATM, OTM Puts = strikes below ATM
+        otm_calls = [s for s in smile_data if s["strike"] > underlying][:5]
+        otm_puts = [s for s in smile_data if s["strike"] < underlying][-5:]
+
+        otm_call_iv = (
+            sum(s["ce_iv"] for s in otm_calls) / len(otm_calls)
+            if otm_calls else 0
+        )
+        otm_put_iv = (
+            sum(s["pe_iv"] for s in otm_puts) / len(otm_puts)
+            if otm_puts else 0
+        )
+
+        skew_ratio = round(otm_put_iv / otm_call_iv, 3) if otm_call_iv > 0 else None
+
+        # Skew interpretation
+        if skew_ratio is not None:
+            if skew_ratio > 1.15:
+                skew_bias = "Put Skew (Fear/Hedging)"
+            elif skew_ratio < 0.85:
+                skew_bias = "Call Skew (Greed/Speculation)"
+            else:
+                skew_bias = "Symmetric (Balanced)"
+        else:
+            skew_bias = "Insufficient Data"
+
+        return {
+            "symbol": oi_data.get("symbol"),
+            "underlying": underlying,
+            "atm_strike": atm["strike"],
+            "atm_ce_iv": atm["ce_iv"],
+            "atm_pe_iv": atm["pe_iv"],
+            "otm_call_iv": round(otm_call_iv, 2),
+            "otm_put_iv": round(otm_put_iv, 2),
+            "skew_ratio": skew_ratio,
+            "skew_bias": skew_bias,
+            "smile_data": smile_data,
+        }
+
+    def calculate_iv_surface(self, symbol: str) -> Optional[dict]:
+        """
+        Build IV surface across multiple expiries.
+        Fetches option chain for the symbol and groups IV by expiry + strike.
+
+        Returns:
+            - surface: [{expiry, strike, ce_iv, pe_iv, days_to_expiry}, ...]
+            - expiries: [str, ...]
+            - atm_term_structure: [{expiry, days, atm_ce_iv, atm_pe_iv}, ...]
+        """
+        chain = nse_fetcher.get_option_chain(symbol)
+        if not chain or not chain.get("data"):
+            return None
+
+        underlying = chain.get("underlying_value", 0)
+        expiry_dates = chain.get("expiry_dates", [])
+        now = datetime.now()
+
+        surface_points = []
+        term_structure = []
+
+        for expiry in expiry_dates[:6]:  # Limit to first 6 expiries
+            try:
+                expiry_date = datetime.strptime(expiry, "%d-%b-%Y")
+                days_to_expiry = max(1, (expiry_date - now).days)
+            except (ValueError, TypeError):
+                days_to_expiry = 0
+
+            expiry_strikes = []
+
+            for record in chain["data"]:
+                # Robust expiry check
+                record_exp = record.get("expiryDate") or record.get("CE", {}).get("expiryDate") or record.get("PE", {}).get("expiryDate")
+                
+                # Normalize both to check match
+                if not record_exp:
+                    continue
+                
+                # Try parsing if formats differ (e.g., 07-May-2026 vs 07-05-2026)
+                match = False
+                if record_exp == expiry:
+                    match = True
+                else:
+                    try:
+                        # Try to normalize record_exp to match expiry string format
+                        for fmt in ["%d-%b-%Y", "%d-%m-%Y"]:
+                            try:
+                                if datetime.strptime(record_exp, fmt).strftime("%d-%b-%Y") == expiry:
+                                    match = True
+                                    break
+                            except: continue
+                    except: pass
+                
+                if not match:
+                    continue
+
+                sp = record.get("strikePrice", 0)
+                ce_iv = record.get("CE", {}).get("impliedVolatility", 0)
+                pe_iv = record.get("PE", {}).get("impliedVolatility", 0)
+
+                if ce_iv > 0 or pe_iv > 0:
+                    point = {
+                        "expiry": expiry,
+                        "strike": sp,
+                        "ce_iv": ce_iv,
+                        "pe_iv": pe_iv,
+                        "days_to_expiry": days_to_expiry,
+                    }
+                    surface_points.append(point)
+                    expiry_strikes.append(point)
+
+            # Find ATM for this expiry's term structure
+            if expiry_strikes:
+                atm_point = min(expiry_strikes, key=lambda x: abs(x["strike"] - underlying))
+                term_structure.append({
+                    "expiry": expiry,
+                    "days": days_to_expiry,
+                    "atm_ce_iv": atm_point["ce_iv"],
+                    "atm_pe_iv": atm_point["pe_iv"],
+                })
+
+        if not surface_points:
+            logger.info(f"Generating mock IV surface for {symbol}")
+            return self._generate_mock_surface(symbol, underlying, expiry_dates[:6])
+
+        # Determine term structure shape
+        if len(term_structure) >= 2:
+            near_iv = term_structure[0]["atm_ce_iv"]
+            far_iv = term_structure[-1]["atm_ce_iv"]
+            if far_iv > near_iv * 1.05:
+                term_shape = "Contango (Normal)"
+            elif near_iv > far_iv * 1.05:
+                term_shape = "Backwardation (Event Risk)"
+            else:
+                term_shape = "Flat"
+        else:
+            term_shape = "Insufficient Data"
+
+        # Detailed Analysis Report
+        analysis = self._generate_analysis_report(symbol, skew_ratio, term_shape, term_structure)
+
+        return {
+            "symbol": symbol,
+            "underlying": underlying,
+            "expiries": expiry_dates[:6],
+            "surface": surface_points,
+            "term_structure": term_structure,
+            "term_shape": term_shape,
+            "analysis": analysis
+        }
+
+    def _generate_analysis_report(self, symbol, skew_ratio, term_shape, term_structure) -> dict:
+        """Generates verbal insights based on IV metrics."""
+        summary = []
+        verdict = "NEUTRAL"
+        
+        # Skew Insight
+        if skew_ratio > 1.15:
+            summary.append("Aggressive Put Skew detected. Markets are pricing in significant tail-risk or hedging for a downside move.")
+            verdict = "BEARISH"
+        elif skew_ratio > 1.05:
+            summary.append("Moderate Put Skew. Normal defensive positioning by institutional players.")
+        elif skew_ratio < 0.90:
+            summary.append("Call Skew detected. Markets are pricing in an upside breakout or 'FOMO' buying.")
+            verdict = "BULLISH"
+        else:
+            summary.append("Balanced Skew. No significant directional bias in the options volatility space.")
+
+        # Term Structure Insight
+        if "Backwardation" in term_shape:
+            summary.append("Term Structure is in BACKWARDATION. Near-term uncertainty is extremely high; usually seen before major events or during crashes.")
+        elif "Contango" in term_shape:
+            summary.append("Term Structure is in normal CONTANGO. Market expects volatility to mean-revert or stay stable in the long run.")
+
+        return {
+            "summary": summary,
+            "verdict": verdict,
+            "sentiment": "Risk-Off" if verdict == "BEARISH" else "Risk-On" if verdict == "BULLISH" else "Neutral",
+            "action": "Avoid fresh longs" if verdict == "BEARISH" else "Look for dips" if verdict == "BULLISH" else "Range-bound play"
+        }
+
+    def _generate_mock_surface(self, symbol: str, underlying: float, expiries: list) -> dict:
+        """Generate synthetic IV surface data."""
+        import random
+        surface = []
+        term_structure = []
+        underlying = underlying or 24000
+        
+        step = 100 if underlying > 10000 else 50
+        atm = round(underlying / step) * step
+        
+        for i, exp in enumerate(expiries):
+            days = (i + 1) * 7
+            base_iv = 15 + (i * 1.5) # Slight contango
+            
+            for j in range(-10, 11):
+                strike = atm + (j * step)
+                # Volatility smile: IV increases as we move away from ATM
+                smile_factor = (j ** 2) * 0.1
+                iv = base_iv + smile_factor + random.uniform(-0.5, 0.5)
+                
+                point = {
+                    "expiry": exp,
+                    "strike": strike,
+                    "ce_iv": round(iv, 2),
+                    "pe_iv": round(iv + 0.5, 2), # Slight put skew
+                    "days_to_expiry": days
+                }
+                surface.append(point)
+                if j == 0:
+                    term_structure.append({
+                        "expiry": exp,
+                        "days": days,
+                        "atm_ce_iv": round(iv, 2),
+                        "atm_pe_iv": round(iv + 0.5, 2)
+                    })
+                    
+        return {
+            "symbol": symbol,
+            "underlying": underlying,
+            "expiries": expiries,
+            "surface": surface,
+            "term_structure": term_structure,
+            "term_shape": "Contango (Mock)",
+        }
+
+
+# Module-level singleton
+iv_analyzer = IVAnalyzer()
