@@ -74,8 +74,8 @@ export function TREND({ symbol }: { symbol: string }) {
           </h2>
           <div className="flex gap-3 text-[10px] text-gray-500">
             <span>SPOT: <span className="text-white">{current.spot}</span></span>
-            {current.pcr_oi && <span>PCR: <span className={current.pcr_oi > 1 ? "text-emerald-400" : "text-red-400"}>{current.pcr_oi}</span></span>}
-            {current.atm_iv && <span>ATM IV: <span className="text-white">{current.atm_iv}%</span></span>}
+            {current.pcr_oi != null && <span>PCR: <span className={current.pcr_oi > 1 ? "text-emerald-400" : "text-red-400"}>{current.pcr_oi}</span></span>}
+            {current.atm_iv != null && <span>ATM IV: <span className="text-white">{current.atm_iv}%</span></span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -128,7 +128,10 @@ export function TREND({ symbol }: { symbol: string }) {
             <div className="mt-auto space-y-2 border-t border-white/5 pt-3">
               <div className="flex justify-between text-[10px]">
                 <span className="text-gray-500">PCR TREND</span>
-                <span className={`capitalize ${data.analysis.pcr_trend === 'rising' ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`capitalize ${
+                  data.analysis.pcr_trend === 'rising' ? 'text-emerald-400' :
+                  data.analysis.pcr_trend === 'falling' ? 'text-red-400' : 'text-amber-400'
+                }`}>
                   {data.analysis.pcr_trend}
                 </span>
               </div>
@@ -155,7 +158,10 @@ export function TREND({ symbol }: { symbol: string }) {
 
 /* ── PCR Chart ── */
 function PCRChart({ points }: { points: TrendPoint[] }) {
-  const pcrValues = points.map(p => p.pcr_oi || 1);
+  const validPoints = points.filter(p => p.pcr_oi != null);
+  if (validPoints.length < 2) return <div className="text-gray-500 p-4">Insufficient PCR data</div>;
+
+  const pcrValues = validPoints.map(p => p.pcr_oi as number);
   const maxVal = Math.max(...pcrValues, 1.5);
   const minVal = Math.min(...pcrValues, 0.5);
   const range = maxVal - minVal || 1;
@@ -185,8 +191,8 @@ function PCRChart({ points }: { points: TrendPoint[] }) {
         ))}
 
         {/* Labels */}
-        {points.map((p, i) => {
-          if (i % Math.max(1, Math.floor(points.length / 10)) !== 0 && i !== points.length - 1) return null;
+        {validPoints.map((p, i) => {
+          if (i % Math.max(1, Math.floor(validPoints.length / 10)) !== 0 && i !== validPoints.length - 1) return null;
           return (
             <text key={i} x={i * stepX} y={chartH + 15} textAnchor="middle" fontSize="9" fill="#64748b">
               {p.date.substring(5)}
@@ -203,6 +209,8 @@ function OIChart({ points }: { points: TrendPoint[] }) {
   const maxVal = Math.max(
     ...points.map(p => Math.max(p.total_ce_oi || 0, p.total_pe_oi || 0))
   );
+  if (maxVal <= 0) return <div className="text-gray-500 p-4">Insufficient OI data</div>;
+
   const chartH = 200;
   const chartW = Math.max(300, points.length * 20);
   const stepX = chartW / Math.max(1, points.length);
@@ -237,7 +245,10 @@ function OIChart({ points }: { points: TrendPoint[] }) {
 
 /* ── IV Chart ── */
 function IVChart({ points }: { points: TrendPoint[] }) {
-  const ivValues = points.map(p => p.atm_iv || 15);
+  const validPoints = points.filter(p => p.atm_iv != null && p.atm_iv > 0);
+  if (validPoints.length < 2) return <div className="text-gray-500 p-4">Insufficient IV data</div>;
+
+  const ivValues = validPoints.map(p => p.atm_iv as number);
   const maxVal = Math.max(...ivValues, 20);
   const minVal = Math.min(...ivValues, 10);
   const range = maxVal - minVal || 1;
@@ -258,8 +269,8 @@ function IVChart({ points }: { points: TrendPoint[] }) {
           <circle key={i} cx={i * stepX} cy={chartH - ((v - minVal) / range) * (chartH - 20) - 10}
             r="3" fill="#a855f7" />
         ))}
-        {points.map((p, i) => {
-          if (i % Math.max(1, Math.floor(points.length / 10)) !== 0 && i !== points.length - 1) return null;
+        {validPoints.map((p, i) => {
+          if (i % Math.max(1, Math.floor(validPoints.length / 10)) !== 0 && i !== validPoints.length - 1) return null;
           return (
             <text key={i} x={i * stepX} y={chartH + 15} textAnchor="middle" fontSize="9" fill="#64748b">
               {p.date.substring(5)}

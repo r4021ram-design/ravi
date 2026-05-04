@@ -66,9 +66,16 @@ export function IVSURF({ symbol }: { symbol: string }) {
         ]);
 
         if (!ignore) {
-          if (surfRes.ok) setSurfaceData(await surfRes.json());
-          if (skewRes.ok) setSkewData(await skewRes.json());
-          setError(null);
+          const nextSurfaceData = surfRes.ok ? await surfRes.json() : null;
+          const nextSkewData = skewRes.ok ? await skewRes.json() : null;
+
+          setSurfaceData(nextSurfaceData);
+          setSkewData(nextSkewData);
+          setError(
+            !nextSurfaceData && !nextSkewData
+              ? `IV data unavailable (surface: ${surfRes.status}, skew: ${skewRes.status})`
+              : null
+          );
         }
       } catch (err) {
         if (!ignore) setError(err instanceof Error ? err.message : "Failed to fetch IV data");
@@ -186,7 +193,10 @@ function SkewView({ data }: { data: IVSkewData }) {
   if (smile.length < 3) return <div className="text-gray-500 p-4">Insufficient smile data</div>;
 
   const maxIV = Math.max(...smile.map(s => Math.max(s.ce_iv, s.pe_iv)));
-  const minIV = Math.min(...smile.filter(s => s.ce_iv > 0 || s.pe_iv > 0).map(s => Math.min(s.ce_iv || maxIV, s.pe_iv || maxIV)));
+  const validIVs = smile.flatMap(s => [s.ce_iv, s.pe_iv]).filter(iv => iv > 0);
+  if (validIVs.length < 2 || maxIV <= 0) return <div className="text-gray-500 p-4">Insufficient IV smile data</div>;
+
+  const minIV = Math.min(...validIVs);
   const ivRange = maxIV - minIV || 1;
   const chartH = 200;
   const chartW = smile.length;
@@ -256,12 +266,14 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
   const step = underlying > 10000 ? 100 : 50;
   const nearStrikes = allStrikes.filter(s => Math.abs(s - underlying) <= step * 15);
 
-  const maxIV = Math.max(...surface.map(s => Math.max(s.ce_iv, s.pe_iv)));
-  const minIV = Math.min(...surface.filter(s => s.ce_iv > 0).map(s => s.ce_iv));
+  const validIVs = surface.flatMap(s => [s.ce_iv, s.pe_iv]).filter(iv => iv > 0);
+  if (validIVs.length < 2) return <div className="text-gray-500 p-4">Insufficient surface IV values</div>;
+
+  const maxIV = Math.max(...validIVs);
+  const minIV = Math.min(...validIVs);
   const ivRange = maxIV - minIV || 1;
 
   const cellW = Math.max(60, 800 / expiries.length);
-  const cellH = 16;
 
   // Color: low IV = blue, high IV = red
   function ivColor(iv: number): string {
@@ -270,19 +282,6 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
     const h = (1 - t) * 220; // 220 (blue) → 0 (red)
     return `hsl(${h}, 75%, ${20 + t * 30}%)`;
   }
-
-  useEffect(() => {
-    const headers = document.querySelectorAll('.header-cell') as NodeListOf<HTMLElement>;
-    headers.forEach(h => {
-      const w = h.getAttribute('data-w');
-      if (w) h.style.minWidth = w;
-    });
-    const cells = document.querySelectorAll('.iv-cell') as NodeListOf<HTMLElement>;
-    cells.forEach(cell => {
-      const bg = cell.getAttribute('data-bg');
-      if (bg) cell.style.backgroundColor = bg;
-    });
-  });
 
   return (
     <div>
@@ -293,7 +292,7 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
             <tr>
               <th className="p-1 text-right text-gray-500 sticky left-0 bg-[#050810] z-10">Strike</th>
               {expiries.map(e => (
-                <th key={e} className="p-1 text-center text-gray-500 header-cell" data-w={`${cellW}px`}>
+                <th key={e} className="p-1 text-center text-gray-500" style={{ minWidth: cellW }}>
                   {e.replace(/-20\d\d$/, '')}
                 </th>
               ))}
@@ -313,8 +312,8 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
                     return (
                       <td key={exp} className="p-0.5">
                         <div
-                          className="w-full h-4 rounded-sm text-center text-[9px] font-mono iv-cell"
-                          data-bg={ivColor(iv)}
+                          className="w-full h-4 rounded-sm text-center text-[9px] font-mono"
+                          style={{ backgroundColor: ivColor(iv) }}
                           title={`Strike: ${strike} | Expiry: ${exp} | IV: ${iv.toFixed(1)}%`}
                         >
                           {iv > 0 ? iv.toFixed(1) : ''}

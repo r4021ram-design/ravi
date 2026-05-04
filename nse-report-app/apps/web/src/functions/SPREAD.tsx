@@ -45,37 +45,6 @@ interface OptionsData {
 
 const DISTANCES = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
 
-// Back Spread Ratios (Safe)
-const getBackSpreadRatio = (distance: number) => {
-  if (distance <= 50) return { buy: 1, sell: 1 };
-  if (distance <= 150) return { buy: 1, sell: 2 };
-  return { buy: 1, sell: 3 };
-};
-
-// Front Spread Ratios (Aggressive)
-const FRONT_SPREAD_RATIOS = [
-  { buy: 1, sell: 1 },
-  { buy: 1, sell: 3 },
-  { buy: 2, sell: 5 },
-  { buy: 1, sell: 2 }, // User had 5 then 3? Let's use user's: 1, 3, 2, 5, 3, 6, 3, 5
-  { buy: 1, sell: 3 },
-  { buy: 1, sell: 5 }, // wait, user row was: | 1 | 3 | 2 | 5 | 3 | 6 | 3 | 5 |
-];
-
-const getFrontSpreadRatio = (index: number) => {
-  const ratios = [
-    { buy: 1, sell: 1 },
-    { buy: 1, sell: 3 },
-    { buy: 2, sell: 5 },
-    { buy: 1, sell: 2 }, // map to user: 1, 3, 2, 5, 3, 6, 3, 5
-    { buy: 1, sell: 3 },
-    { buy: 1, sell: 6 },
-    { buy: 1, sell: 3 },
-    { buy: 1, sell: 5 },
-  ];
-  return ratios[index] || { buy: 1, sell: 3 };
-};
-
 export function SPREAD({ symbol }: { symbol: string }) {
   const [data, setData] = useState<OptionsData | null>(null);
   const [loading, setLoading] = useState(true);

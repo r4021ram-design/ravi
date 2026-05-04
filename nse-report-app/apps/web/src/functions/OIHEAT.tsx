@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect } from "react";
 import { API_BASE } from "../lib/config";
 
 type ViewMode = "CE" | "PE" | "NET";
@@ -47,14 +47,6 @@ export function OIHEAT({ symbol }: { symbol: string }) {
     fetchData();
     return () => { ignore = true; };
   }, [symbol]);
-
-  useLayoutEffect(() => {
-    const cells = document.querySelectorAll('.oi-cell') as NodeListOf<HTMLElement>;
-    cells.forEach(cell => {
-      const bg = cell.getAttribute('data-bg');
-      if (bg) cell.style.backgroundColor = bg;
-    });
-  });
 
   if (loading) return <div className="p-4 text-amber-500 font-mono text-sm animate-pulse">LOADING OI HEATMAP FOR {symbol}...</div>;
   if (error) return <div className="p-4 text-red-500 font-mono text-sm">ERROR: {error}</div>;
@@ -151,8 +143,8 @@ export function OIHEAT({ symbol }: { symbol: string }) {
                     return (
                       <td key={exp} className="p-0.5">
                         <div
-                          className="w-full rounded-sm text-center font-mono py-0.5 oi-cell"
-                          data-bg={oiColor(val, view)}
+                          className="w-full rounded-sm text-center font-mono py-0.5"
+                          style={{ backgroundColor: oiColor(val, view) }}
                           title={`Strike: ${strike} | Expiry: ${exp} | ${view}: ${val.toLocaleString()}`}
                         >
                           {val !== 0 ? formatOI(val) : ''}

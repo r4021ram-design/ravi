@@ -5,6 +5,12 @@ import { generateIntel, IntelResult } from "../lib/signals";
 import { ReportData } from "../lib/types";
 import { API_BASE } from "../lib/config";
 
+const REPORT_INDEX_KEYS: Record<string, string> = {
+  NIFTY: "NIFTY 50",
+  BANKNIFTY: "NIFTY BANK",
+  FINNIFTY: "NIFTY FIN SERVICE",
+};
+
 export function INTEL({ symbol }: { symbol: string }) {
   const [intelResult, setIntelResult] = useState<IntelResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,10 +34,11 @@ export function INTEL({ symbol }: { symbol: string }) {
           console.warn("Could not fetch daily report for macro data.");
         }
 
-        let indexData: any = reportData?.index_analysis?.[upperSymbol];
+        const reportKey = REPORT_INDEX_KEYS[upperSymbol] || upperSymbol;
+        let indexData: any = reportData?.index_analysis?.[reportKey];
 
         // 2. If it's a stock (not NIFTY/BANKNIFTY), fetch on-demand options technicals
-        if (!indexData) {
+        if (!indexData?.trend && !indexData?.intraday_bias) {
           const resOpt = await fetch(`${API_BASE}/api/options/${upperSymbol}`);
           if (!resOpt.ok) throw new Error(`Symbol ${upperSymbol} not found or options data unavailable.`);
           const optData = await resOpt.json();

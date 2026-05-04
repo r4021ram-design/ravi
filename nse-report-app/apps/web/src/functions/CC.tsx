@@ -19,15 +19,16 @@ function ChangeIndicator({ change, pct }: { change?: number; pct?: number }) {
   );
 }
 
-function BiasChip({ bias }: { bias: string }) {
+function BiasChip({ bias }: { bias?: string | null }) {
   const colors: Record<string, string> = {
     Bullish: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     Bearish: "bg-red-500/20 text-red-400 border-red-500/30",
     Neutral: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   };
+  const label = bias || "Neutral";
   return (
-    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border tracking-wider ${colors[bias] || colors.Neutral}`}>
-      {bias}
+    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border tracking-wider ${colors[label] || colors.Neutral}`}>
+      {label}
     </span>
   );
 }
@@ -65,6 +66,26 @@ export function CC() {
 
   const mo = report.market_overview;
   const gm = mo.global_markets;
+  const globalQuotes = [
+    ...Object.values(gm?.us_indices ?? {}),
+    ...Object.values(gm?.commodities ?? {}),
+    ...Object.values(gm?.forex ?? {}),
+  ];
+  const indexAnalysis = Object.fromEntries(
+    Object.entries(report.index_analysis ?? {}).map(([name, data]) => [
+      name,
+      {
+        quote: data.quote,
+        trend: data.trend || "Unknown",
+        support: data.support ?? [],
+        resistance: data.resistance ?? [],
+        PCR: data.PCR ?? null,
+        max_pain: data.max_pain ?? null,
+        OI_build_up: data.OI_build_up ?? null,
+        intraday_bias: data.intraday_bias || "Neutral",
+      },
+    ])
+  );
 
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-[#050810] text-gray-300 font-mono text-xs">
@@ -86,7 +107,10 @@ export function CC() {
       <div className="mb-4">
         <div className="text-gray-500 mb-2 border-b border-white/5 pb-1">GLOBAL CUES</div>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-          {[...Object.values(gm.us_indices), ...Object.values(gm.commodities), ...Object.values(gm.forex)].map((q) => (
+          {globalQuotes.length === 0 && (
+            <div className="text-gray-600 col-span-full">GLOBAL DATA UNAVAILABLE</div>
+          )}
+          {globalQuotes.map((q) => (
             <div key={q.symbol} className="bg-white/5 p-2 rounded flex flex-col">
               <span className="text-gray-400 truncate">{q.symbol}</span>
               {q.status === "data not available" ? (
@@ -106,7 +130,7 @@ export function CC() {
 
       {/* Indices */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        {Object.entries(report.index_analysis).map(([name, data]) => (
+        {Object.entries(indexAnalysis).map(([name, data]) => (
           <div key={name} className="border border-white/10 bg-white/5 p-3 rounded">
             <div className="flex justify-between items-start mb-2">
               <div className="text-base text-amber-500 font-bold">{name}</div>

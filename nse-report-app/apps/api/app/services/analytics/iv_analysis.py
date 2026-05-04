@@ -57,8 +57,15 @@ class IVAnalyzer:
         atm = sorted_by_dist[0]
 
         # OTM Calls = strikes above ATM, OTM Puts = strikes below ATM
-        otm_calls = [s for s in smile_data if s["strike"] > underlying][:5]
-        otm_puts = [s for s in smile_data if s["strike"] < underlying][-5:]
+        otm_calls = sorted(
+            [s for s in smile_data if s["strike"] > underlying and s["ce_iv"] > 0],
+            key=lambda s: s["strike"],
+        )[:5]
+        otm_puts = sorted(
+            [s for s in smile_data if s["strike"] < underlying and s["pe_iv"] > 0],
+            key=lambda s: s["strike"],
+            reverse=True,
+        )[:5]
 
         otm_call_iv = (
             sum(s["ce_iv"] for s in otm_calls) / len(otm_calls)
@@ -193,6 +200,8 @@ class IVAnalyzer:
         else:
             term_shape = "Insufficient Data"
 
+        skew_ratio = self._calculate_surface_skew_ratio(surface_points, underlying)
+
         # Detailed Analysis Report
         analysis = self._generate_analysis_report(symbol, skew_ratio, term_shape, term_structure)
 
@@ -206,13 +215,42 @@ class IVAnalyzer:
             "analysis": analysis
         }
 
+    def _calculate_surface_skew_ratio(self, surface_points: list, underlying: float) -> Optional[float]:
+        """Estimate put/call IV skew from the nearest expiry in the surface."""
+        if not surface_points or not underlying:
+            return None
+
+        nearest_days = min(p["days_to_expiry"] for p in surface_points)
+        nearest_points = [p for p in surface_points if p["days_to_expiry"] == nearest_days]
+        if len(nearest_points) < 5:
+            return None
+
+        otm_calls = sorted(
+            [p for p in nearest_points if p["strike"] > underlying and p["ce_iv"] > 0],
+            key=lambda p: p["strike"],
+        )[:5]
+        otm_puts = sorted(
+            [p for p in nearest_points if p["strike"] < underlying and p["pe_iv"] > 0],
+            key=lambda p: p["strike"],
+            reverse=True,
+        )[:5]
+
+        if not otm_calls or not otm_puts:
+            return None
+
+        call_iv = sum(p["ce_iv"] for p in otm_calls) / len(otm_calls)
+        put_iv = sum(p["pe_iv"] for p in otm_puts) / len(otm_puts)
+        return round(put_iv / call_iv, 3) if call_iv > 0 else None
+
     def _generate_analysis_report(self, symbol, skew_ratio, term_shape, term_structure) -> dict:
         """Generates verbal insights based on IV metrics."""
         summary = []
         verdict = "NEUTRAL"
         
         # Skew Insight
-        if skew_ratio > 1.15:
+        if skew_ratio is None:
+            summary.append("Skew data is incomplete, so directional volatility bias is neutral.")
+        elif skew_ratio > 1.15:
             summary.append("Aggressive Put Skew detected. Markets are pricing in significant tail-risk or hedging for a downside move.")
             verdict = "BEARISH"
         elif skew_ratio > 1.05:

@@ -79,12 +79,15 @@ class SupportResistanceCalculator:
         ce_change_sum = sum(s["oiChange"] for s in ce_change_strikes)
         pe_change_sum = sum(s["oiChange"] for s in pe_change_strikes)
 
-        if pe_change_sum > ce_change_sum * 1.2:
+        if pe_change_sum > 0 and pe_change_sum > max(ce_change_sum, 0) * 1.2:
             oi_bias = "Bullish"
             oi_detail = "Put OI addition > Call OI — support building"
-        elif ce_change_sum > pe_change_sum * 1.2:
+        elif ce_change_sum > 0 and ce_change_sum > max(pe_change_sum, 0) * 1.2:
             oi_bias = "Bearish"
             oi_detail = "Call OI addition > Put OI — resistance building"
+        elif pe_change_sum < 0 and ce_change_sum < 0:
+            oi_bias = "Neutral"
+            oi_detail = "OI unwinding on both sides - no clean directional bias"
         else:
             oi_bias = "Neutral"
             oi_detail = "Balanced OI changes — no clear directional bias"

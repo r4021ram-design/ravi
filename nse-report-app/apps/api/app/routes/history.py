@@ -90,26 +90,54 @@ def get_historical_trends(
 def _analyze_trends(symbol: str, points: List[dict]) -> dict:
     """Analyze historical points to generate verbal insights."""
     if len(points) < 5:
-        return {"verdict": "NEUTRAL", "insights": ["Insufficient historical data for trend analysis."]}
+        return {
+            "verdict": "NEUTRAL",
+            "insights": ["Insufficient historical data for trend analysis."],
+            "pcr_trend": "stable",
+            "oi_bias": "neutral",
+        }
 
-    recent = points[-5:]
+    recent = [
+        p for p in points[-5:]
+        if p.get("pcr_oi") is not None
+        and p.get("total_ce_oi") is not None
+        and p.get("total_pe_oi") is not None
+    ]
+    if len(recent) < 2:
+        return {
+            "verdict": "NEUTRAL",
+            "insights": ["Recent snapshots are incomplete; trend analysis is neutral."],
+            "pcr_trend": "stable",
+            "oi_bias": "neutral",
+        }
+
     pcr_trend = "stable"
-    if recent[-1]["pcr_oi"] > recent[0]["pcr_oi"] * 1.1: pcr_trend = "rising"
-    elif recent[-1]["pcr_oi"] < recent[0]["pcr_oi"] * 0.9: pcr_trend = "falling"
+    first_pcr = recent[0]["pcr_oi"]
+    last_pcr = recent[-1]["pcr_oi"]
+    if first_pcr and last_pcr > first_pcr * 1.1:
+        pcr_trend = "rising"
+    elif first_pcr and last_pcr < first_pcr * 0.9:
+        pcr_trend = "falling"
 
     oi_bias = "neutral"
     ce_change = recent[-1]["total_ce_oi"] - recent[0]["total_ce_oi"]
     pe_change = recent[-1]["total_pe_oi"] - recent[0]["total_pe_oi"]
-    if pe_change > ce_change * 1.2: oi_bias = "bullish build-up"
-    elif ce_change > pe_change * 1.2: oi_bias = "bearish build-up"
+    if pe_change > 0 and pe_change > max(ce_change, 0) * 1.2:
+        oi_bias = "bullish build-up"
+    elif ce_change > 0 and ce_change > max(pe_change, 0) * 1.2:
+        oi_bias = "bearish build-up"
 
     insights = []
-    if pcr_trend == "rising": insights.append("PCR is on a rising trend, indicating increasing put writing (Bullish bias).")
-    elif pcr_trend == "falling": insights.append("PCR is falling, indicating call writing dominance or put unwinding (Bearish bias).")
+    if pcr_trend == "rising":
+        insights.append("PCR is rising; this usually supports bullish positioning unless it reaches an extreme.")
+    elif pcr_trend == "falling":
+        insights.append("PCR is falling; this usually points to weaker put support or stronger call-side pressure.")
+    else:
+        insights.append("PCR is stable; no strong directional signal from recent PCR movement.")
     
     if oi_bias != "neutral": insights.append(f"Detected {oi_bias} in the recent open interest shifts.")
     
-    last_iv = recent[-1]["atm_iv"]
+    last_iv = recent[-1].get("atm_iv")
     if last_iv and last_iv > 18: insights.append("IV is at elevated levels; options are expensive. Consider credit strategies.")
     elif last_iv and last_iv < 12: insights.append("IV is extremely low; options are cheap. Risk of volatility spike.")
 

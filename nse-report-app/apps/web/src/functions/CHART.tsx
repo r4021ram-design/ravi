@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useState, useEffect } from "react";
 import { API_BASE } from "../lib/config";
 
 type TimeRange = "1M" | "3M" | "6M" | "1Y";
@@ -103,10 +103,10 @@ export function CHART({ symbol }: { symbol: string }) {
               current.trend === "Bullish" ? "text-emerald-400" :
               current.trend === "Bearish" ? "text-red-400" : "text-amber-400"
             }>{current.trend}</span></span>
-            {current.rsi && <span>RSI: <span className={
+            {current.rsi != null && <span>RSI: <span className={
               current.rsi > 70 ? "text-red-400" : current.rsi < 30 ? "text-emerald-400" : "text-white"
             }>{current.rsi.toFixed(1)}</span></span>}
-            {current.atr && <span className="text-gray-600">ATR: {current.atr.toFixed(1)}</span>}
+            {current.atr != null && <span className="text-gray-600">ATR: {current.atr.toFixed(1)}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -150,8 +150,8 @@ export function CHART({ symbol }: { symbol: string }) {
             <span className="text-emerald-400">S3:{current.pivots.s3}</span>
           </div>
           <div className="flex gap-3">
-            {current.sma_20 && <span>SMA20: <span className="text-blue-400">{current.sma_20}</span></span>}
-            {current.sma_50 && <span>SMA50: <span className="text-purple-400">{current.sma_50}</span></span>}
+            {current.sma_20 != null && <span>SMA20: <span className="text-blue-400">{current.sma_20}</span></span>}
+            {current.sma_50 != null && <span>SMA50: <span className="text-purple-400">{current.sma_50}</span></span>}
           </div>
         </div>
       )}
@@ -281,15 +281,15 @@ function MACDChart({ ohlcv }: { ohlcv: OHLCVBar[] }) {
   const barW = Math.max(3, Math.min(8, 900 / ohlcv.length));
   const chartW = ohlcv.length * barW;
 
-  const histValues = ohlcv.map(b => b.macd_hist ?? 0);
-  const maxHist = Math.max(...histValues.map(Math.abs), 0.01);
+  const macdValues = ohlcv.flatMap(b => [b.macd_hist, b.macd_line, b.macd_signal]).filter((v): v is number => v != null);
+  const maxMacd = Math.max(...macdValues.map(Math.abs), 0.01);
 
   const macdPoints = ohlcv
-    .map((b, i) => b.macd_line != null ? `${i * barW + barW / 2},${chartH / 2 - (b.macd_line / maxHist) * (chartH / 2 - 5)}` : null)
+    .map((b, i) => b.macd_line != null ? `${i * barW + barW / 2},${chartH / 2 - (b.macd_line / maxMacd) * (chartH / 2 - 5)}` : null)
     .filter(Boolean).join(' ');
 
   const signalPoints = ohlcv
-    .map((b, i) => b.macd_signal != null ? `${i * barW + barW / 2},${chartH / 2 - (b.macd_signal / maxHist) * (chartH / 2 - 5)}` : null)
+    .map((b, i) => b.macd_signal != null ? `${i * barW + barW / 2},${chartH / 2 - (b.macd_signal / maxMacd) * (chartH / 2 - 5)}` : null)
     .filter(Boolean).join(' ');
 
   return (
@@ -304,7 +304,7 @@ function MACDChart({ ohlcv }: { ohlcv: OHLCVBar[] }) {
         {ohlcv.map((bar, i) => {
           const val = bar.macd_hist ?? 0;
           if (val === 0) return null;
-          const h = Math.abs(val / maxHist) * (chartH / 2 - 5);
+          const h = Math.abs(val / maxMacd) * (chartH / 2 - 5);
           const y = val > 0 ? chartH / 2 - h : chartH / 2;
           return (
             <rect key={i} x={i * barW + 0.5} y={y} width={Math.max(1, barW - 1)} height={h}
