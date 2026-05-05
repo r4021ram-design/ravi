@@ -3,7 +3,8 @@ Historical Data Routes
 Endpoints for PCR, VIX, and OI time-series charts.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from statistics import mean
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
 from typing import List
@@ -13,6 +14,13 @@ from app.db import models
 from app.tasks.snapshot_task import capture_daily_snapshot
 
 router = APIRouter()
+
+
+def _safe_pct_change(start: float | int | None, end: float | int | None) -> float | None:
+    """Return percentage change when both values are present and start is positive."""
+    if start is None or end is None or start <= 0:
+        return None
+    return ((end - start) / start) * 100.0
 
 
 @router.get("/{symbol}/trends")
@@ -32,35 +40,13 @@ def get_historical_trends(
         models.DailySnapshot.date >= start_date
     ).order_by(models.DailySnapshot.date.asc()).all()
 
-    # If no records exist, we can try to take a snapshot right now for demo purposes
+    # If no records exist, try to capture a live snapshot once.
     if not records:
         capture_daily_snapshot(symbol)
         records = db.query(models.DailySnapshot).filter(
-            models.DailySnapshot.symbol == symbol
+            models.DailySnapshot.symbol == symbol,
+            models.DailySnapshot.date >= start_date
         ).order_by(models.DailySnapshot.date.asc()).all()
-        
-        # Create some dummy historical data for the chart if empty (only for MVP demo)
-        if len(records) == 1:
-            today_rec = records[0]
-            for i in range(days, 0, -1):
-                d = (date.today() - timedelta(days=i)).isoformat()
-                dummy = models.DailySnapshot(
-                    symbol=symbol,
-                    date=d,
-                    pcr_oi=round(today_rec.pcr_oi * (1 + 0.1 * (-1)**i), 2) if today_rec.pcr_oi else 1.0,
-                    total_ce_oi=int((today_rec.total_ce_oi or 100000) * (1 + 0.05 * (-1)**i)),
-                    total_pe_oi=int((today_rec.total_pe_oi or 100000) * (1 + 0.05 * (-1)**(i+1))),
-                    atm_iv=round((today_rec.atm_iv or 15.0) * (1 + 0.02 * i), 2),
-                    underlying_value=round((today_rec.underlying_value or 24000) * (1 - 0.001 * i), 2)
-                )
-                db.add(dummy)
-            db.commit()
-            
-            # Re-fetch
-            records = db.query(models.DailySnapshot).filter(
-                models.DailySnapshot.symbol == symbol,
-                models.DailySnapshot.date >= start_date
-            ).order_by(models.DailySnapshot.date.asc()).all()
 
     data = []
     for r in records:
@@ -112,19 +98,37 @@ def _analyze_trends(symbol: str, points: List[dict]) -> dict:
         }
 
     pcr_trend = "stable"
-    first_pcr = recent[0]["pcr_oi"]
-    last_pcr = recent[-1]["pcr_oi"]
-    if first_pcr and last_pcr > first_pcr * 1.1:
-        pcr_trend = "rising"
-    elif first_pcr and last_pcr < first_pcr * 0.9:
-        pcr_trend = "falling"
+    pcr_values = [p["pcr_oi"] for p in recent if p.get("pcr_oi") is not None]
+    first_pcr = pcr_values[0] if pcr_values else None
+    last_pcr = pcr_values[-1] if pcr_values else None
+    avg_pcr = mean(pcr_values) if pcr_values else None
+    pcr_change_pct = _safe_pct_change(first_pcr, last_pcr)
+    if pcr_change_pct is not None:
+        if pcr_change_pct >= 8:
+            pcr_trend = "rising"
+        elif pcr_change_pct <= -8:
+            pcr_trend = "falling"
 
     oi_bias = "neutral"
-    ce_change = recent[-1]["total_ce_oi"] - recent[0]["total_ce_oi"]
-    pe_change = recent[-1]["total_pe_oi"] - recent[0]["total_pe_oi"]
-    if pe_change > 0 and pe_change > max(ce_change, 0) * 1.2:
+    first_ce_oi = recent[0]["total_ce_oi"]
+    last_ce_oi = recent[-1]["total_ce_oi"]
+    first_pe_oi = recent[0]["total_pe_oi"]
+    last_pe_oi = recent[-1]["total_pe_oi"]
+    ce_change = last_ce_oi - first_ce_oi
+    pe_change = last_pe_oi - first_pe_oi
+    ce_change_pct = _safe_pct_change(first_ce_oi, last_ce_oi)
+    pe_change_pct = _safe_pct_change(first_pe_oi, last_pe_oi)
+    if (
+        pe_change > 0
+        and pe_change_pct is not None
+        and (ce_change_pct is None or pe_change_pct >= ce_change_pct + 5)
+    ):
         oi_bias = "bullish build-up"
-    elif ce_change > 0 and ce_change > max(pe_change, 0) * 1.2:
+    elif (
+        ce_change > 0
+        and ce_change_pct is not None
+        and (pe_change_pct is None or ce_change_pct >= pe_change_pct + 5)
+    ):
         oi_bias = "bearish build-up"
 
     insights = []
@@ -135,15 +139,45 @@ def _analyze_trends(symbol: str, points: List[dict]) -> dict:
     else:
         insights.append("PCR is stable; no strong directional signal from recent PCR movement.")
     
-    if oi_bias != "neutral": insights.append(f"Detected {oi_bias} in the recent open interest shifts.")
+    if avg_pcr is not None:
+        insights.append(f"Average PCR across the recent 5-session window is {avg_pcr:.2f}.")
+
+    if oi_bias != "neutral":
+        insights.append(f"Detected {oi_bias} in the recent open interest shifts.")
+    else:
+        insights.append("Call and put open-interest changes are balanced; no dominant build-up signal is present.")
     
     last_iv = recent[-1].get("atm_iv")
-    if last_iv and last_iv > 18: insights.append("IV is at elevated levels; options are expensive. Consider credit strategies.")
-    elif last_iv and last_iv < 12: insights.append("IV is extremely low; options are cheap. Risk of volatility spike.")
+    recent_ivs = [p["atm_iv"] for p in recent if p.get("atm_iv") is not None and p["atm_iv"] > 0]
+    recent_avg_iv = mean(recent_ivs) if recent_ivs else None
+    if last_iv is not None and recent_avg_iv is not None:
+        if last_iv >= recent_avg_iv * 1.12:
+            insights.append("IV is elevated versus the recent average; option premiums are relatively expensive.")
+        elif last_iv <= recent_avg_iv * 0.88:
+            insights.append("IV is compressed versus the recent average; options are relatively cheap.")
 
     verdict = "NEUTRAL"
-    if pcr_trend == "rising" and "bullish" in oi_bias: verdict = "BULLISH"
-    elif pcr_trend == "falling" and "bearish" in oi_bias: verdict = "BEARISH"
+    score = 0
+    if pcr_trend == "rising":
+        score += 1
+    elif pcr_trend == "falling":
+        score -= 1
+
+    if "bullish" in oi_bias:
+        score += 1
+    elif "bearish" in oi_bias:
+        score -= 1
+
+    if avg_pcr is not None:
+        if avg_pcr >= 1.15:
+            score += 1
+        elif avg_pcr <= 0.85:
+            score -= 1
+
+    if score >= 2:
+        verdict = "BULLISH"
+    elif score <= -2:
+        verdict = "BEARISH"
 
     return {
         "verdict": verdict,

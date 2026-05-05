@@ -29,6 +29,68 @@ interface TrendData {
   };
 }
 
+const FALLBACK_ANALYSIS = {
+  verdict: "NEUTRAL",
+  insights: ["Trend analysis is unavailable for the current dataset."],
+  pcr_trend: "stable",
+  oi_bias: "neutral",
+};
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatNumber(value: number | null, digits = 2) {
+  return isFiniteNumber(value) ? value.toFixed(digits) : "--";
+}
+
+function sanitizePoint(point: unknown): TrendPoint | null {
+  if (!point || typeof point !== "object") return null;
+  const candidate = point as Record<string, unknown>;
+  if (typeof candidate.date !== "string" || !candidate.date) return null;
+
+  return {
+    date: candidate.date,
+    pcr_oi: isFiniteNumber(candidate.pcr_oi) ? candidate.pcr_oi : null,
+    total_ce_oi: isFiniteNumber(candidate.total_ce_oi) ? candidate.total_ce_oi : null,
+    total_pe_oi: isFiniteNumber(candidate.total_pe_oi) ? candidate.total_pe_oi : null,
+    net_oi: isFiniteNumber(candidate.net_oi) ? candidate.net_oi : null,
+    atm_iv: isFiniteNumber(candidate.atm_iv) ? candidate.atm_iv : null,
+    spot: isFiniteNumber(candidate.spot) ? candidate.spot : null,
+    max_pain: isFiniteNumber(candidate.max_pain) ? candidate.max_pain : null,
+  };
+}
+
+function sanitizeTrendData(payload: unknown): TrendData | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Record<string, unknown>;
+  if (typeof candidate.symbol !== "string") return null;
+
+  const points = Array.isArray(candidate.data)
+    ? candidate.data.map(sanitizePoint).filter((point): point is TrendPoint => point !== null)
+    : [];
+
+  const sortedPoints = [...points].sort((a, b) => a.date.localeCompare(b.date));
+  const rawAnalysis = candidate.analysis && typeof candidate.analysis === "object"
+    ? candidate.analysis as Record<string, unknown>
+    : null;
+
+  return {
+    symbol: candidate.symbol,
+    days: isFiniteNumber(candidate.days) ? candidate.days : sortedPoints.length,
+    count: isFiniteNumber(candidate.count) ? candidate.count : sortedPoints.length,
+    data: sortedPoints,
+    analysis: rawAnalysis ? {
+      verdict: typeof rawAnalysis.verdict === "string" ? rawAnalysis.verdict : FALLBACK_ANALYSIS.verdict,
+      insights: Array.isArray(rawAnalysis.insights)
+        ? rawAnalysis.insights.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : FALLBACK_ANALYSIS.insights,
+      pcr_trend: typeof rawAnalysis.pcr_trend === "string" ? rawAnalysis.pcr_trend : FALLBACK_ANALYSIS.pcr_trend,
+      oi_bias: typeof rawAnalysis.oi_bias === "string" ? rawAnalysis.oi_bias : FALLBACK_ANALYSIS.oi_bias,
+    } : undefined,
+  };
+}
+
 export function TREND({ symbol }: { symbol: string }) {
   const [data, setData] = useState<TrendData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +106,9 @@ export function TREND({ symbol }: { symbol: string }) {
         const res = await fetch(`${API_BASE}/api/history/${symbol}/trends?days=${days}`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         if (!ignore) {
-          setData(await res.json());
+          const payload = sanitizeTrendData(await res.json());
+          if (!payload) throw new Error("Invalid trend data received from API");
+          setData(payload);
           setError(null);
         }
       } catch (err) {
@@ -61,8 +125,9 @@ export function TREND({ symbol }: { symbol: string }) {
   if (error) return <div className="p-4 text-red-500 font-mono text-sm">ERROR: {error}</div>;
   if (!data || !data.data.length) return <div className="p-4 text-gray-500 font-mono text-sm">NO TREND DATA</div>;
 
-  const points = data.data;
+  const points = [...data.data].sort((a, b) => a.date.localeCompare(b.date));
   const current = points[points.length - 1];
+  const analysis = data.analysis ?? FALLBACK_ANALYSIS;
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-gray-300 font-mono text-xs">
@@ -73,9 +138,9 @@ export function TREND({ symbol }: { symbol: string }) {
             {data.symbol} <span className="text-[10px] bg-rose-500/10 text-rose-400 px-1 rounded">TREND</span>
           </h2>
           <div className="flex gap-3 text-[10px] text-gray-500">
-            <span>SPOT: <span className="text-white">{current.spot}</span></span>
-            {current.pcr_oi != null && <span>PCR: <span className={current.pcr_oi > 1 ? "text-emerald-400" : "text-red-400"}>{current.pcr_oi}</span></span>}
-            {current.atm_iv != null && <span>ATM IV: <span className="text-white">{current.atm_iv}%</span></span>}
+            <span>SPOT: <span className="text-white">{formatNumber(current.spot)}</span></span>
+            {current.pcr_oi != null && <span>PCR: <span className={current.pcr_oi > 1 ? "text-emerald-400" : "text-red-400"}>{formatNumber(current.pcr_oi, 2)}</span></span>}
+            {current.atm_iv != null && <span>ATM IV: <span className="text-white">{formatNumber(current.atm_iv, 2)}%</span></span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -107,18 +172,18 @@ export function TREND({ symbol }: { symbol: string }) {
         </div>
 
         {/* Trend Analysis Panel */}
-        {data.analysis && (
+        {analysis && (
           <div className="w-full lg:w-72 shrink-0 bg-rose-500/5 rounded border border-rose-500/10 p-3 flex flex-col gap-3">
             <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex justify-between">
               <span>Trend Intelligence</span>
               <span className={
-                data.analysis.verdict === "BULLISH" ? "text-emerald-400" :
-                data.analysis.verdict === "BEARISH" ? "text-red-400" : "text-amber-400"
-              }>{data.analysis.verdict}</span>
+                analysis.verdict === "BULLISH" ? "text-emerald-400" :
+                analysis.verdict === "BEARISH" ? "text-red-400" : "text-amber-400"
+              }>{analysis.verdict}</span>
             </div>
             
             <div className="space-y-3 mt-2">
-              {data.analysis.insights.map((insight, i) => (
+              {analysis.insights.map((insight, i) => (
                 <div key={i} className="text-[11px] text-gray-400 leading-snug border-l-2 border-rose-500/20 pl-2 py-0.5">
                   {insight}
                 </div>
@@ -129,15 +194,15 @@ export function TREND({ symbol }: { symbol: string }) {
               <div className="flex justify-between text-[10px]">
                 <span className="text-gray-500">PCR TREND</span>
                 <span className={`capitalize ${
-                  data.analysis.pcr_trend === 'rising' ? 'text-emerald-400' :
-                  data.analysis.pcr_trend === 'falling' ? 'text-red-400' : 'text-amber-400'
+                  analysis.pcr_trend === 'rising' ? 'text-emerald-400' :
+                  analysis.pcr_trend === 'falling' ? 'text-red-400' : 'text-amber-400'
                 }`}>
-                  {data.analysis.pcr_trend}
+                  {analysis.pcr_trend}
                 </span>
               </div>
               <div className="flex justify-between text-[10px]">
                 <span className="text-gray-500">OI BIAS</span>
-                <span className="text-white capitalize">{data.analysis.oi_bias}</span>
+                <span className="text-white capitalize">{analysis.oi_bias}</span>
               </div>
               <div className="text-[9px] text-gray-600 mt-2 italic text-center">
                 * Based on recent 5-session snapshot
@@ -166,8 +231,8 @@ function PCRChart({ points }: { points: TrendPoint[] }) {
   const minVal = Math.min(...pcrValues, 0.5);
   const range = maxVal - minVal || 1;
   const chartH = 200;
-  const chartW = Math.max(300, points.length * 15);
-  const stepX = chartW / Math.max(1, points.length - 1);
+  const chartW = Math.max(300, validPoints.length * 18);
+  const stepX = chartW / Math.max(1, validPoints.length - 1);
 
   const polyPoints = pcrValues
     .map((v, i) => `${i * stepX},${chartH - ((v - minVal) / range) * (chartH - 20) - 10}`)
@@ -253,8 +318,8 @@ function IVChart({ points }: { points: TrendPoint[] }) {
   const minVal = Math.min(...ivValues, 10);
   const range = maxVal - minVal || 1;
   const chartH = 200;
-  const chartW = Math.max(300, points.length * 15);
-  const stepX = chartW / Math.max(1, points.length - 1);
+  const chartW = Math.max(300, validPoints.length * 18);
+  const stepX = chartW / Math.max(1, validPoints.length - 1);
 
   const polyPoints = ivValues
     .map((v, i) => `${i * stepX},${chartH - ((v - minVal) / range) * (chartH - 20) - 10}`)

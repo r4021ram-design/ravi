@@ -21,6 +21,53 @@ interface HeatmapData {
   data: HeatmapPoint[];
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function inferStrikeStep(strikes: number[]) {
+  const diffs = strikes
+    .slice(1)
+    .map((strike, index) => strike - strikes[index])
+    .filter((diff) => diff > 0);
+  return diffs.length ? Math.min(...diffs) : 50;
+}
+
+function sanitizeHeatmapData(payload: unknown): HeatmapData | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Record<string, unknown>;
+  if (typeof candidate.symbol !== "string") return null;
+
+  const strikes = Array.isArray(candidate.strikes)
+    ? candidate.strikes.filter((item): item is number => isFiniteNumber(item)).sort((a, b) => a - b)
+    : [];
+  const expiries = Array.isArray(candidate.expiries)
+    ? candidate.expiries.filter((item): item is string => typeof item === "string")
+    : [];
+  const heatmapPoints = Array.isArray(candidate.data)
+    ? candidate.data.map((point) => {
+        if (!point || typeof point !== "object") return null;
+        const item = point as Record<string, unknown>;
+        if (typeof item.expiry !== "string" || !isFiniteNumber(item.strike)) return null;
+        return {
+          expiry: item.expiry,
+          strike: item.strike,
+          ce_oi: isFiniteNumber(item.ce_oi) ? item.ce_oi : 0,
+          pe_oi: isFiniteNumber(item.pe_oi) ? item.pe_oi : 0,
+          net_oi: isFiniteNumber(item.net_oi) ? item.net_oi : 0,
+        };
+      }).filter((point): point is HeatmapPoint => point !== null)
+    : [];
+
+  return {
+    symbol: candidate.symbol,
+    underlying: isFiniteNumber(candidate.underlying) ? candidate.underlying : 0,
+    expiries,
+    strikes,
+    data: heatmapPoints,
+  };
+}
+
 export function OIHEAT({ symbol }: { symbol: string }) {
   const [data, setData] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +82,9 @@ export function OIHEAT({ symbol }: { symbol: string }) {
         const res = await fetch(`${API_BASE}/api/options/${symbol}/oi-heatmap`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         if (!ignore) {
-          setData(await res.json());
+          const payload = sanitizeHeatmapData(await res.json());
+          if (!payload) throw new Error("Invalid OI heatmap data received from API");
+          setData(payload);
           setError(null);
         }
       } catch (err) {
@@ -82,8 +131,9 @@ export function OIHEAT({ symbol }: { symbol: string }) {
   }
 
   // Filter strikes near ATM for better view
-  const step = data.underlying > 10000 ? 100 : 50;
+  const step = inferStrikeStep(data.strikes);
   const nearStrikes = data.strikes.filter(s => Math.abs(s - data.underlying) <= step * 12);
+  const heatmapIndex = new Map(data.data.map((point) => [`${point.expiry}_${point.strike}`, point]));
 
 
   return (
@@ -95,7 +145,7 @@ export function OIHEAT({ symbol }: { symbol: string }) {
             {data.symbol} <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-1 rounded">OIHEAT</span>
           </h2>
           <div className="text-[10px] text-gray-500">
-            SPOT: <span className="text-white">{data.underlying}</span>
+            SPOT: <span className="text-white">{data.underlying.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             <span className="ml-3">EXPIRIES: {data.expiries.length}</span>
             <span className="ml-3">STRIKES: {nearStrikes.length}</span>
           </div>
@@ -138,7 +188,7 @@ export function OIHEAT({ symbol }: { symbol: string }) {
                     {strike}
                   </td>
                   {data.expiries.map(exp => {
-                    const point = data.data.find(d => d.strike === strike && d.expiry === exp);
+                    const point = heatmapIndex.get(`${exp}_${strike}`);
                     const val = point ? (view === "CE" ? point.ce_oi : view === "PE" ? point.pe_oi : point.net_oi) : 0;
                     return (
                       <td key={exp} className="p-0.5">

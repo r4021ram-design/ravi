@@ -48,6 +48,121 @@ interface IVSkewData {
   smile_data: { strike: number; ce_iv: number; pe_iv: number }[];
 }
 
+const FALLBACK_SURFACE_ANALYSIS = {
+  summary: ["Volatility analysis is unavailable for the current dataset."],
+  verdict: "NEUTRAL",
+  sentiment: "Neutral",
+  action: "Wait for clearer volatility data",
+};
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatPercent(value: number | null | undefined, digits = 1) {
+  return isFiniteNumber(value) ? `${value.toFixed(digits)}%` : "N/A";
+}
+
+function formatValue(value: number | null | undefined, digits = 3) {
+  return isFiniteNumber(value) ? value.toFixed(digits) : "N/A";
+}
+
+function inferStrikeStep(strikes: number[]) {
+  const diffs = strikes
+    .slice(1)
+    .map((strike, index) => strike - strikes[index])
+    .filter((diff) => diff > 0);
+  return diffs.length ? Math.min(...diffs) : 50;
+}
+
+function sanitizeSurfaceData(payload: unknown): IVSurfaceData | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Record<string, unknown>;
+  if (typeof candidate.symbol !== "string") return null;
+
+  const surface = Array.isArray(candidate.surface)
+    ? candidate.surface.map((point) => {
+        if (!point || typeof point !== "object") return null;
+        const item = point as Record<string, unknown>;
+        if (typeof item.expiry !== "string" || !isFiniteNumber(item.strike)) return null;
+        return {
+          expiry: item.expiry,
+          strike: item.strike,
+          ce_iv: isFiniteNumber(item.ce_iv) ? item.ce_iv : 0,
+          pe_iv: isFiniteNumber(item.pe_iv) ? item.pe_iv : 0,
+          days_to_expiry: isFiniteNumber(item.days_to_expiry) ? item.days_to_expiry : 0,
+        };
+      }).filter((point): point is SurfacePoint => point !== null)
+    : [];
+
+  const termStructure = Array.isArray(candidate.term_structure)
+    ? candidate.term_structure.map((point) => {
+        if (!point || typeof point !== "object") return null;
+        const item = point as Record<string, unknown>;
+        if (typeof item.expiry !== "string" || !isFiniteNumber(item.days)) return null;
+        return {
+          expiry: item.expiry,
+          days: item.days,
+          atm_ce_iv: isFiniteNumber(item.atm_ce_iv) ? item.atm_ce_iv : 0,
+          atm_pe_iv: isFiniteNumber(item.atm_pe_iv) ? item.atm_pe_iv : 0,
+        };
+      }).filter((point): point is TermPoint => point !== null)
+    : [];
+
+  const rawAnalysis = candidate.analysis && typeof candidate.analysis === "object"
+    ? candidate.analysis as Record<string, unknown>
+    : null;
+
+  return {
+    symbol: candidate.symbol,
+    underlying: isFiniteNumber(candidate.underlying) ? candidate.underlying : 0,
+    expiries: Array.isArray(candidate.expiries) ? candidate.expiries.filter((item): item is string => typeof item === "string") : [],
+    surface,
+    term_structure: termStructure.sort((a, b) => a.days - b.days),
+    term_shape: typeof candidate.term_shape === "string" ? candidate.term_shape : "Insufficient Data",
+    analysis: rawAnalysis ? {
+      summary: Array.isArray(rawAnalysis.summary)
+        ? rawAnalysis.summary.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : FALLBACK_SURFACE_ANALYSIS.summary,
+      verdict: typeof rawAnalysis.verdict === "string" ? rawAnalysis.verdict : FALLBACK_SURFACE_ANALYSIS.verdict,
+      sentiment: typeof rawAnalysis.sentiment === "string" ? rawAnalysis.sentiment : FALLBACK_SURFACE_ANALYSIS.sentiment,
+      action: typeof rawAnalysis.action === "string" ? rawAnalysis.action : FALLBACK_SURFACE_ANALYSIS.action,
+    } : FALLBACK_SURFACE_ANALYSIS,
+  };
+}
+
+function sanitizeSkewData(payload: unknown): IVSkewData | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Record<string, unknown>;
+  if (typeof candidate.symbol !== "string") return null;
+
+  const smileData = Array.isArray(candidate.smile_data)
+    ? candidate.smile_data.map((point) => {
+        if (!point || typeof point !== "object") return null;
+        const item = point as Record<string, unknown>;
+        if (!isFiniteNumber(item.strike)) return null;
+        return {
+          strike: item.strike,
+          ce_iv: isFiniteNumber(item.ce_iv) ? item.ce_iv : 0,
+          pe_iv: isFiniteNumber(item.pe_iv) ? item.pe_iv : 0,
+        };
+      }).filter((point): point is { strike: number; ce_iv: number; pe_iv: number } => point !== null).sort((a, b) => a.strike - b.strike)
+    : [];
+
+  return {
+    symbol: candidate.symbol,
+    underlying: isFiniteNumber(candidate.underlying) ? candidate.underlying : 0,
+    atm_strike: isFiniteNumber(candidate.atm_strike) ? candidate.atm_strike : 0,
+    atm_ce_iv: isFiniteNumber(candidate.atm_ce_iv) ? candidate.atm_ce_iv : 0,
+    atm_pe_iv: isFiniteNumber(candidate.atm_pe_iv) ? candidate.atm_pe_iv : 0,
+    otm_call_iv: isFiniteNumber(candidate.otm_call_iv) ? candidate.otm_call_iv : 0,
+    otm_put_iv: isFiniteNumber(candidate.otm_put_iv) ? candidate.otm_put_iv : 0,
+    skew_ratio: isFiniteNumber(candidate.skew_ratio) ? candidate.skew_ratio : null,
+    skew_bias: typeof candidate.skew_bias === "string" ? candidate.skew_bias : "Insufficient Data",
+    smile_data: smileData,
+  };
+}
+
 export function IVSURF({ symbol }: { symbol: string }) {
   const [surfaceData, setSurfaceData] = useState<IVSurfaceData | null>(null);
   const [skewData, setSkewData] = useState<IVSkewData | null>(null);
@@ -66,8 +181,8 @@ export function IVSURF({ symbol }: { symbol: string }) {
         ]);
 
         if (!ignore) {
-          const nextSurfaceData = surfRes.ok ? await surfRes.json() : null;
-          const nextSkewData = skewRes.ok ? await skewRes.json() : null;
+          const nextSurfaceData = surfRes.ok ? sanitizeSurfaceData(await surfRes.json()) : null;
+          const nextSkewData = skewRes.ok ? sanitizeSkewData(await skewRes.json()) : null;
 
           setSurfaceData(nextSurfaceData);
           setSkewData(nextSkewData);
@@ -102,11 +217,11 @@ export function IVSURF({ symbol }: { symbol: string }) {
           <div className="flex items-center gap-3 text-[10px]">
             {skewData && (
               <>
-                <span>ATM IV: <span className="text-white">{skewData.atm_ce_iv.toFixed(1)}%</span></span>
+                <span>ATM IV: <span className="text-white">{formatPercent(skewData.atm_ce_iv)}</span></span>
                 <span>SKEW: <span className={
-                  (skewData.skew_ratio || 1) > 1.1 ? "text-red-400" :
-                  (skewData.skew_ratio || 1) < 0.9 ? "text-emerald-400" : "text-amber-400"
-                }>{skewData.skew_ratio?.toFixed(3) || 'N/A'}</span></span>
+                  (skewData.skew_ratio ?? 1) > 1.1 ? "text-red-400" :
+                  (skewData.skew_ratio ?? 1) < 0.9 ? "text-emerald-400" : "text-amber-400"
+                }>{formatValue(skewData.skew_ratio)}</span></span>
                 <span className="text-gray-600">{skewData.skew_bias}</span>
               </>
             )}
@@ -176,8 +291,8 @@ export function IVSURF({ symbol }: { symbol: string }) {
         <div className="flex gap-4">
           {skewData && (
             <>
-              <div>OTM PUT IV: <span className="text-red-400/80">{skewData.otm_put_iv}%</span></div>
-              <div>OTM CALL IV: <span className="text-emerald-400/80">{skewData.otm_call_iv}%</span></div>
+              <div>OTM PUT IV: <span className="text-red-400/80">{formatPercent(skewData.otm_put_iv, 2)}</span></div>
+              <div>OTM CALL IV: <span className="text-emerald-400/80">{formatPercent(skewData.otm_call_iv, 2)}</span></div>
             </>
           )}
         </div>
@@ -249,7 +364,7 @@ function SkewView({ data }: { data: IVSkewData }) {
           <span className="w-4 h-0 inline-block border-t border-dashed border-red-500" /> PE IV
         </div>
         <div className="ml-auto text-gray-500">
-          ATM: {data.atm_strike} | CE IV: {data.atm_ce_iv.toFixed(1)}% | PE IV: {data.atm_pe_iv.toFixed(1)}%
+          ATM: {data.atm_strike} | CE IV: {formatPercent(data.atm_ce_iv)} | PE IV: {formatPercent(data.atm_pe_iv)}
         </div>
       </div>
     </div>
@@ -263,8 +378,9 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
 
   // Get unique sorted strikes near ATM
   const allStrikes = [...new Set(surface.map(s => s.strike))].sort((a, b) => a - b);
-  const step = underlying > 10000 ? 100 : 50;
+  const step = inferStrikeStep(allStrikes);
   const nearStrikes = allStrikes.filter(s => Math.abs(s - underlying) <= step * 15);
+  const surfaceIndex = new Map(surface.map(point => [`${point.expiry}_${point.strike}`, point]));
 
   const validIVs = surface.flatMap(s => [s.ce_iv, s.pe_iv]).filter(iv => iv > 0);
   if (validIVs.length < 2) return <div className="text-gray-500 p-4">Insufficient surface IV values</div>;
@@ -307,7 +423,7 @@ function SurfaceView({ data }: { data: IVSurfaceData }) {
                     {strike}
                   </td>
                   {expiries.map(exp => {
-                    const point = surface.find(s => s.strike === strike && s.expiry === exp);
+                    const point = surfaceIndex.get(`${exp}_${strike}`);
                     const iv = point?.ce_iv || 0;
                     return (
                       <td key={exp} className="p-0.5">
@@ -387,8 +503,8 @@ function TermView({ data }: { data: IVSurfaceData }) {
           data.term_shape.includes("Contango") ? "text-emerald-400" :
           data.term_shape.includes("Backwardation") ? "text-red-400" : "text-amber-400"
         }>{data.term_shape}</span></span>
-        <span className="text-gray-500">Near IV: <span className="text-white">{points[0]?.atm_ce_iv.toFixed(1)}%</span></span>
-        <span className="text-gray-500">Far IV: <span className="text-white">{points[points.length - 1]?.atm_ce_iv.toFixed(1)}%</span></span>
+        <span className="text-gray-500">Near IV: <span className="text-white">{formatPercent(points[0]?.atm_ce_iv)}</span></span>
+        <span className="text-gray-500">Far IV: <span className="text-white">{formatPercent(points[points.length - 1]?.atm_ce_iv)}</span></span>
       </div>
     </div>
   );

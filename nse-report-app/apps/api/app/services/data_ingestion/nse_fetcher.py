@@ -85,16 +85,17 @@ class NSEFetcher:
 
     # ----- Options Chain -----
 
-    def get_option_chain(self, symbol: str = "NIFTY") -> Optional[dict]:
+    def get_option_chain(self, symbol: str = "NIFTY", expiry: str = None) -> Optional[dict]:
         """
         Fetch full options chain for an index or equity.
+        Optionally filter by expiry date at the fetch level.
         """
         self._rate_limit()
         try:
             if symbol in ("NIFTY", "BANKNIFTY", "FINNIFTY"):
-                data = self._n.index_option_chain(symbol)
+                data = self._n.index_option_chain(symbol, expiry=expiry)
             else:
-                data = self._n.equities_option_chain(symbol)
+                data = self._n.equities_option_chain(symbol, expiry=expiry)
 
             if not data or "records" not in data:
                 return None
@@ -117,7 +118,7 @@ class NSEFetcher:
         Extract structured OI data from option chain.
         Returns: per-strike CE/PE OI, total OI, PCR data.
         """
-        chain = self.get_option_chain(symbol)
+        chain = self.get_option_chain(symbol, expiry=expiry)
         if not chain:
             return None
 

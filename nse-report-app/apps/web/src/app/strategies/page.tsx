@@ -300,7 +300,7 @@ export default function StrategiesPage() {
             <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Risk / Reward Summary</h3>
             <div className="flex items-center gap-4">
               <div className="flex-1 bg-gray-800 rounded-full h-3 overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full"
+                <div className="h-full bg-linear-to-r from-emerald-500 to-blue-500 rounded-full"
                   style={{ width: `${Math.min(100, (maxProfit / (maxProfit + Math.abs(maxLoss))) * 100)}%` }} />
               </div>
               <span className="text-xs text-gray-400 font-mono whitespace-nowrap">

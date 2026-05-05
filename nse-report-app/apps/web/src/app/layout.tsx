@@ -1,11 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "NSE Daily Report | Pre-Market & Post-Market Intelligence",
@@ -19,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} dark`} suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className="h-screen overflow-hidden bg-[#050810] text-gray-100 font-(family-name:--font-inter) antialiased flex flex-col">
         {children}
       </body>
