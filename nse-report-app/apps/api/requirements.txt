@@ -9,8 +9,8 @@ requests==2.32.0
 urllib3==2.3.0
 
 # Data processing
-numpy==2.2.0
-pandas==2.2.0
+numpy>=1.26.0
+pandas>=2.1.0
 
 # Database
 sqlalchemy==2.0.36
