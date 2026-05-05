@@ -27,3 +27,7 @@ python-socketio==5.12.0
 # Utilities
 python-dotenv==1.0.1
 httpx==0.28.0
+
+# NSE Data Fetching
+jugaad-data>=0.25.0
+nse-python>=0.1.0
