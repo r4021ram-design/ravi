@@ -14,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className="h-screen overflow-hidden bg-[#050810] text-gray-100 font-(family-name:--font-inter) antialiased flex flex-col">
+      <body className="min-h-svh bg-[#050810] text-gray-100 font-(family-name:--font-inter) antialiased flex flex-col overflow-x-hidden">
         {children}
       </body>
     </html>

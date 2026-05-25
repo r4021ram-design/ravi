@@ -27,7 +27,7 @@ function BiasChip({ bias }: { bias?: string | null }) {
   };
   const label = bias || "Neutral";
   return (
-    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border tracking-wider ${colors[label] || colors.Neutral}`}>
+    <span className={`px-2 py-1 rounded text-[11px] md:text-xs font-bold uppercase border tracking-wider ${colors[label] || colors.Neutral}`}>
       {label}
     </span>
   );
@@ -88,12 +88,12 @@ export function CC() {
   );
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-[#050810] text-gray-300 font-mono text-xs">
+    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-[#050810] text-gray-300 font-mono text-sm md:text-base">
       {/* Header */}
       <div className="flex justify-between items-end border-b border-white/10 pb-2 mb-4">
         <div>
-          <h1 className="text-xl text-amber-500 font-bold tracking-tight">CC - COMMAND CENTER</h1>
-          <div className="text-gray-500 mt-1">REPORT DATE: {report.report_date} | T+{report.generation_time_seconds}s</div>
+          <h1 className="text-2xl md:text-3xl text-amber-500 font-black tracking-tight uppercase">CC - Command Center</h1>
+          <div className="text-gray-500 mt-1 text-xs md:text-sm">REPORT DATE: {report.report_date} | GENERATED IN {report.generation_time_seconds}s</div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -129,28 +129,30 @@ export function CC() {
       </div>
 
       {/* Indices */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {Object.entries(indexAnalysis).map(([name, data]) => (
-          <div key={name} className="border border-white/10 bg-white/5 p-3 rounded">
-            <div className="flex justify-between items-start mb-2">
-              <div className="text-base text-amber-500 font-bold">{name}</div>
+          <div key={name} className="border border-white/10 bg-white/5 p-5 rounded">
+            <div className="flex justify-between items-start mb-4">
+              <div className="text-lg md:text-2xl text-amber-500 font-black uppercase">{name}</div>
               <BiasChip bias={data.intraday_bias} />
             </div>
             {data.quote?.last ? (
-              <div className="mb-3">
-                <div className="text-2xl font-bold">{formatNum(data.quote.last, 0)}</div>
-                <ChangeIndicator change={data.quote.change as number} pct={data.quote.changePercent as number} />
+              <div className="mb-4">
+                <div className="text-4xl md:text-5xl font-black text-white">{formatNum(data.quote.last, 0)}</div>
+                <div className="text-base md:text-lg mt-1">
+                  <ChangeIndicator change={data.quote.change as number} pct={data.quote.changePercent as number} />
+                </div>
               </div>
             ) : (
-              <div className="text-gray-600 mb-3">DATA UNAVAILABLE</div>
+              <div className="text-gray-600 mb-4">DATA UNAVAILABLE</div>
             )}
             
-            <div className="grid grid-cols-2 gap-y-2 gap-x-4 mb-3 pb-3 border-b border-white/10">
-              <div><span className="text-gray-500">SUP </span><span className="text-emerald-400">{data.support.map(formatNum).join("/") || "—"}</span></div>
-              <div><span className="text-gray-500">RES </span><span className="text-red-400">{data.resistance.map(formatNum).join("/") || "—"}</span></div>
-              <div><span className="text-gray-500">PCR </span>{data.PCR ? formatNum(data.PCR, 3) : "—"}</div>
-              <div><span className="text-gray-500">MAX </span>{data.max_pain ? formatNum(data.max_pain, 0) : "—"}</div>
-            </div>
+          <div className="grid grid-cols-2 gap-y-4 gap-x-6 mb-6 pb-6 border-b border-white/10 text-sm md:text-lg">
+            <div className="flex justify-between"><span className="text-gray-500">SUPPORT</span><span className="text-emerald-400 font-bold">{data.support.map(formatNum).join(" / ") || "—"}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">RESIST</span><span className="text-red-400 font-bold">{data.resistance.map(formatNum).join(" / ") || "—"}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">PCR</span><span className="text-white">{data.PCR ? formatNum(data.PCR, 3) : "—"}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">PAIN</span><span className="text-white">{data.max_pain ? formatNum(data.max_pain, 0) : "—"}</span></div>
+          </div>
             <div className="text-gray-400"><span className="text-gray-500">TRD </span>{data.trend}</div>
             {data.OI_build_up && <div className="text-gray-400"><span className="text-gray-500">OI  </span>{data.OI_build_up}</div>}
           </div>

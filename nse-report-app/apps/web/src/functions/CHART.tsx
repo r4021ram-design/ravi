@@ -90,15 +90,15 @@ export function CHART({ symbol }: { symbol: string }) {
   const showSMA = indicators.has("SMA");
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-gray-300 font-mono text-xs">
+    <div className="flex flex-col h-full overflow-hidden text-gray-300 font-mono text-sm md:text-base">
       {/* Header */}
-      <div className="bg-[#0a0e1a] border-b border-white/10 p-3 shrink-0 flex justify-between items-center">
+      <div className="bg-[#0a0e1a] border-b border-white/10 p-3 shrink-0 flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h2 className="text-lg font-bold text-amber-500 flex items-center gap-2">
-            {symbol} <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1 rounded">CHART</span>
+          <h2 className="text-2xl md:text-3xl font-black text-amber-500 flex items-center gap-3">
+            {symbol} <span className="text-base md:text-lg bg-blue-500/20 text-blue-400 px-3 py-0.5 rounded font-bold">CHART</span>
           </h2>
-          <div className="flex items-center gap-3 text-[10px]">
-            <span>CLOSE: <span className="text-white">{current.close}</span></span>
+          <div className="flex flex-wrap items-center gap-6 text-sm md:text-base font-bold">
+            <span>CLOSE: <span className="text-white text-lg md:text-xl">{current.close}</span></span>
             <span>TREND: <span className={
               current.trend === "Bullish" ? "text-emerald-400" :
               current.trend === "Bearish" ? "text-red-400" : "text-amber-400"
@@ -106,27 +106,28 @@ export function CHART({ symbol }: { symbol: string }) {
             {current.rsi != null && <span>RSI: <span className={
               current.rsi > 70 ? "text-red-400" : current.rsi < 30 ? "text-emerald-400" : "text-white"
             }>{current.rsi.toFixed(1)}</span></span>}
-            {current.atr != null && <span className="text-gray-600">ATR: {current.atr.toFixed(1)}</span>}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-4 justify-end">
           {/* Time Range */}
-          <div className="flex gap-0.5">
+          <div className="flex gap-1.5 bg-white/5 p-1.5 rounded-lg">
             {(["1M", "3M", "6M", "1Y"] as TimeRange[]).map(r => (
               <button key={r} onClick={() => setRange(r)}
-                className={`px-2 py-1 rounded text-[10px] transition-colors ${
-                  range === r ? "bg-blue-500/20 text-blue-400" : "text-gray-500 hover:bg-white/5"
+                className={`px-4 py-2 rounded-md text-sm md:text-base font-bold transition-all ${
+                  range === r ? "bg-blue-600 text-white shadow-xl shadow-blue-600/30" : "text-gray-500 hover:text-gray-300"
                 }`}>{r}</button>
             ))}
           </div>
-          <div className="w-px h-4 bg-white/10" />
+          <div className="hidden md:block w-px h-8 bg-white/10" />
           {/* Indicators */}
-          {(["SMA", "RSI", "MACD"] as Indicator[]).map(ind => (
-            <button key={ind} onClick={() => toggleIndicator(ind)}
-              className={`px-2 py-1 rounded border text-[10px] transition-colors ${
-                indicators.has(ind) ? "bg-amber-500/10 border-amber-500/50 text-amber-400" : "border-white/10 text-gray-600 hover:bg-white/5"
-              }`}>{ind}</button>
-          ))}
+          <div className="flex gap-2.5">
+            {(["SMA", "RSI", "MACD"] as Indicator[]).map(ind => (
+              <button key={ind} onClick={() => toggleIndicator(ind)}
+                className={`px-4 py-2 rounded-md border-2 text-sm md:text-base font-black transition-all ${
+                  indicators.has(ind) ? "bg-amber-500/20 border-amber-500 text-amber-400 shadow-xl shadow-amber-500/20" : "border-white/10 text-gray-600 hover:text-gray-400"
+                }`}>{ind}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -139,15 +140,15 @@ export function CHART({ symbol }: { symbol: string }) {
 
       {/* Pivot Points Footer */}
       {current.pivots && (
-        <div className="bg-[#0a0e1a] border-t border-white/10 p-2 text-[10px] flex justify-between px-4 text-gray-500 shrink-0">
-          <div className="flex gap-3">
-            <span className="text-red-400">R3:{current.pivots.r3}</span>
-            <span className="text-red-400/70">R2:{current.pivots.r2}</span>
-            <span className="text-red-400/50">R1:{current.pivots.r1}</span>
-            <span className="text-amber-500">PP:{current.pivots.pp}</span>
-            <span className="text-emerald-400/50">S1:{current.pivots.s1}</span>
-            <span className="text-emerald-400/70">S2:{current.pivots.s2}</span>
-            <span className="text-emerald-400">S3:{current.pivots.s3}</span>
+        <div className="bg-[#0a0e1a] border-t border-white/10 p-4 text-sm md:text-base flex flex-wrap justify-between px-6 text-gray-400 shrink-0 gap-y-3">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <span className="text-red-500 font-black">R3: {current.pivots.r3}</span>
+            <span className="text-red-400 font-bold">R2: {current.pivots.r2}</span>
+            <span className="text-red-400/70 font-bold">R1: {current.pivots.r1}</span>
+            <span className="text-amber-500 font-black scale-110 px-2 bg-amber-500/10 rounded">PP: {current.pivots.pp}</span>
+            <span className="text-emerald-400/70 font-bold">S1: {current.pivots.s1}</span>
+            <span className="text-emerald-400 font-bold">S2: {current.pivots.s2}</span>
+            <span className="text-emerald-500 font-black">S3: {current.pivots.s3}</span>
           </div>
           <div className="flex gap-3">
             {current.sma_20 != null && <span>SMA20: <span className="text-blue-400">{current.sma_20}</span></span>}
@@ -183,8 +184,8 @@ function PriceChart({ ohlcv, showSMA }: { ohlcv: OHLCVBar[]; showSMA: boolean })
     .filter(Boolean).join(' ');
 
   return (
-    <div className="bg-white/2 rounded border border-white/5 p-2 overflow-x-auto custom-scrollbar">
-      <div className="text-[9px] text-gray-600 mb-1">PRICE (OHLC)</div>
+    <div className="bg-white/2 rounded border border-white/5 p-3 overflow-x-auto custom-scrollbar">
+      <div className="text-[12px] md:text-[14px] text-gray-500 mb-2 font-bold uppercase tracking-wider">PRICE (OHLC)</div>
       <svg width={chartW} height={chartH} className="overflow-visible">
         {/* Horizontal grid */}
         {[0, 0.2, 0.4, 0.6, 0.8, 1].map(pct => {
@@ -192,8 +193,8 @@ function PriceChart({ ohlcv, showSMA }: { ohlcv: OHLCVBar[]; showSMA: boolean })
           const y = pad + pct * (chartH - 2 * pad);
           return (
             <g key={pct}>
-              <line x1={0} y1={y} x2={chartW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-              <text x={2} y={y - 2} fontSize="7" fill="#4a5568">{price.toFixed(0)}</text>
+              <line x1={0} y1={y} x2={chartW} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />
+              <text x={2} y={y - 4} fontSize="11" fontWeight="bold" fill="#718096">{price.toFixed(0)}</text>
             </g>
           );
         })}
@@ -232,7 +233,7 @@ function PriceChart({ ohlcv, showSMA }: { ohlcv: OHLCVBar[]; showSMA: boolean })
           if (i % step !== 0) return null;
           const label = bar.date.substring(5, 10); // MM-DD
           return (
-            <text key={i} x={i * barW + barW / 2} y={chartH + 10} textAnchor="middle" fontSize="6" fill="#4a5568">
+            <text key={i} x={i * barW + barW / 2} y={chartH + 15} textAnchor="middle" fontSize="10" fill="#718096" fontWeight="bold">
               {label}
             </text>
           );
@@ -253,8 +254,8 @@ function RSIChart({ ohlcv }: { ohlcv: OHLCVBar[] }) {
     .filter(Boolean).join(' ');
 
   return (
-    <div className="bg-white/2 rounded border border-white/5 p-2 overflow-x-auto custom-scrollbar">
-      <div className="text-[9px] text-gray-600 mb-1">RSI (14)</div>
+    <div className="bg-white/2 rounded border border-white/5 p-3 overflow-x-auto custom-scrollbar">
+      <div className="text-[12px] md:text-[14px] text-gray-500 mb-2 font-bold uppercase tracking-wider">RSI (14)</div>
       <svg width={chartW} height={chartH} className="overflow-visible">
         {/* Overbought / Oversold lines */}
         <line x1={0} y1={chartH - 70 / 100 * (chartH - 10)} x2={chartW} y2={chartH - 70 / 100 * (chartH - 10)}
@@ -265,8 +266,8 @@ function RSIChart({ ohlcv }: { ohlcv: OHLCVBar[] }) {
           stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
 
         {/* Labels */}
-        <text x={2} y={chartH - 70 / 100 * (chartH - 10) - 2} fontSize="6" fill="#ef4444">70</text>
-        <text x={2} y={chartH - 30 / 100 * (chartH - 10) - 2} fontSize="6" fill="#10b981">30</text>
+        <text x={2} y={chartH - 70 / 100 * (chartH - 10) - 4} fontSize="10" fontWeight="bold" fill="#ef4444">70</text>
+        <text x={2} y={chartH - 30 / 100 * (chartH - 10) - 4} fontSize="10" fontWeight="bold" fill="#10b981">30</text>
 
         {/* RSI line */}
         {points && <polyline points={points} fill="none" stroke="#f59e0b" strokeWidth="1" />}
@@ -293,8 +294,8 @@ function MACDChart({ ohlcv }: { ohlcv: OHLCVBar[] }) {
     .filter(Boolean).join(' ');
 
   return (
-    <div className="bg-white/2 rounded border border-white/5 p-2 overflow-x-auto custom-scrollbar">
-      <div className="text-[9px] text-gray-600 mb-1">MACD (12, 26, 9)</div>
+    <div className="bg-white/2 rounded border border-white/5 p-3 overflow-x-auto custom-scrollbar">
+      <div className="text-[12px] md:text-[14px] text-gray-500 mb-2 font-bold uppercase tracking-wider">MACD (12, 26, 9)</div>
       <svg width={chartW} height={chartH} className="overflow-visible">
         {/* Zero line */}
         <line x1={0} y1={chartH / 2} x2={chartW} y2={chartH / 2}

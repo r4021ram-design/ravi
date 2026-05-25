@@ -204,23 +204,23 @@ export function OMON({ symbol }: { symbol: string }) {
   const lotValue = lotSize > 0 ? lotSize * data.underlying_value : null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-gray-300 font-mono text-xs">
+    <div className="flex flex-col h-full overflow-hidden text-gray-300 font-mono text-sm md:text-base">
       {/* Header Panel */}
       <div className="bg-[#0a0e1a] border-b border-white/10 p-3 shrink-0 flex justify-between items-center">
         <div>
-          <h2 className="text-lg font-bold text-amber-500 flex items-center gap-2">
-            {data.symbol} <span className="text-[10px] bg-amber-500/10 px-1 rounded">OMON</span>
-            <span className="text-[9px] text-gray-600 font-normal ml-2">LOT: {lotSize || '?'} | VAL: {lotValue != null ? `INR ${formatNumber(lotValue)}` : 'N/A'}</span>
+          <h2 className="text-lg md:text-xl font-bold text-amber-500 flex flex-wrap items-center gap-2">
+            {data.symbol} <span className="text-[11px] md:text-xs bg-amber-500/10 px-1 rounded">OMON</span>
+            <span className="text-[10px] md:text-xs text-gray-600 font-normal">LOT: {lotSize || '?'} | VAL: {lotValue != null ? `INR ${formatNumber(lotValue)}` : 'N/A'}</span>
           </h2>
-          <div className="flex items-center gap-3 text-[10px]">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] md:text-xs">
             <span>SPOT: <span className="text-white">{formatNumber(data.underlying_value, 2)}</span></span>
             <span>TREND: <span className={t.intraday_bias === 'Bullish' ? 'text-emerald-400' : t.intraday_bias === 'Bearish' ? 'text-red-400' : 'text-blue-400'}>{t.intraday_bias}</span></span>
             <span className="text-gray-600">TS: {timestampLabel}</span>
           </div>
         </div>
         
-        <div className="flex items-center gap-6">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-right">
+        <div className="flex items-center gap-3 md:gap-6 flex-wrap justify-end">
+          <div className="grid grid-cols-2 gap-x-2 md:gap-x-4 gap-y-0.5 text-[10px] md:text-xs text-right">
             <div>PCR: <span className={(t.PCR ?? 1) > 1.0 ? "text-emerald-400" : "text-red-400"}>{t.PCR != null ? formatDecimal(t.PCR, 3) : 'N/A'}</span></div>
             <div>MAX PAIN: <span className="text-white">{t.max_pain != null ? formatNumber(t.max_pain) : 'N/A'}</span></div>
             <div>SUP: <span className="text-emerald-400">{t.support[0] != null ? formatNumber(t.support[0]) : 'N/A'}</span></div>
@@ -228,7 +228,7 @@ export function OMON({ symbol }: { symbol: string }) {
           </div>
           <button 
             onClick={() => setShowGreeks(!showGreeks)}
-            className={`px-2 py-1 rounded border text-[10px] transition-colors ${showGreeks ? 'bg-amber-500/10 border-amber-500/50 text-amber-500' : 'border-white/10 text-gray-500 hover:bg-white/5'}`}
+            className={`px-2 py-1 rounded border text-[10px] md:text-xs transition-colors ${showGreeks ? 'bg-amber-500/10 border-amber-500/50 text-amber-500' : 'border-white/10 text-gray-500 hover:bg-white/5'}`}
           >
             GREEKS: {showGreeks ? 'ON' : 'OFF'}
           </button>
@@ -238,7 +238,7 @@ export function OMON({ symbol }: { symbol: string }) {
               title="Select expiry date"
               value={selectedExpiry}
               onChange={e => setSelectedExpiry(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1 text-[10px] text-gray-400 outline-none focus:border-blue-500/50"
+              className="bg-white/5 border border-white/10 rounded px-1 md:px-2 py-1 text-[10px] md:text-xs text-gray-400 outline-none focus:border-blue-500/50"
             >
               <option value="">ALL EXPIRIES</option>
               {data.expiry_dates.map((e: string) => (
@@ -250,9 +250,9 @@ export function OMON({ symbol }: { symbol: string }) {
       </div>
 
       {/* Option Chain Table */}
-      <div className="flex-1 overflow-auto custom-scrollbar">
-        <table className="w-full text-right border-collapse">
-          <thead className="sticky top-0 bg-[#050810] border-b border-white/20 text-[10px] text-gray-500 z-10 shadow-lg">
+      <div className="flex-1 overflow-auto custom-scrollbar mobile-table-container">
+        <table className="w-full text-right border-collapse min-w-[1200px] md:min-w-full">
+          <thead className="sticky top-0 bg-[#050810] border-b border-white/20 text-xs md:text-sm text-gray-500 z-10 shadow-lg">
             <tr>
               {/* Call Side */}
               <th className="p-1.5 font-normal">OI</th>
@@ -288,7 +288,7 @@ export function OMON({ symbol }: { symbol: string }) {
               <th className="p-1.5 font-normal text-left">OI</th>
             </tr>
           </thead>
-          <tbody className="text-[10px]">
+          <tbody className="text-sm md:text-base">
             {sortedStrikes.map((s) => {
               const ce = s.CE;
               const pe = s.PE;

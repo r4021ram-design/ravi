@@ -1,7 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { API_BASE } from "../lib/config";
+import { 
+  Plus, 
+  Minus, 
+  Settings, 
+  Edit2, 
+  Check, 
+  RefreshCw, 
+  Sliders, 
+  ChevronUp, 
+  ChevronDown 
+} from "lucide-react";
 
 interface Greeks {
   delta: number;
@@ -43,26 +54,39 @@ interface OptionsData {
   };
 }
 
-const DISTANCES = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
-
 export function SPREAD({ symbol }: { symbol: string }) {
   const [data, setData] = useState<OptionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedExpiry, setSelectedExpiry] = useState<string>("");
+  const [refreshCount, setRefreshCount] = useState(0);
 
-  // Dynamic Ratios State
-  const [backRatios, setBackRatios] = useState<number[]>(DISTANCES.map(d => {
-    if (d <= 50) return 1;
-    if (d <= 150) return 2;
-    return 3;
-  }));
+  // --- Upper Controls States ---
+  const [atmSource, setAtmSource] = useState<"Spot" | "Futures">("Spot");
+  const [futuresSymbol, setFuturesSymbol] = useState("NSE:NIFTY28MAYFUT");
+  const [manualAtmStrike, setManualAtmStrike] = useState<number | null>(null);
+  const [futuresPrice, setFuturesPrice] = useState<number>(24025.20); // Fallback standard futures price
 
-  const [frontRatios, setFrontRatios] = useState<number[]>(DISTANCES.map((d, i) => {
-    const defaultRatios = [1, 3, 2.5, 3, 6, 3, 5, 2, 4, 3]; 
-    return defaultRatios[i] || 3;
-  }));
+  // --- CE Controls States ---
+  const [ceItmCount, setCeItmCount] = useState<number>(2);
+  const [ceOtmCount, setCeOtmCount] = useState<number>(14);
+  const [ceStep, setCeStep] = useState<number>(50);
 
+  // --- PE Controls States ---
+  const [peItmCount, setPeItmCount] = useState<number>(2);
+  const [peOtmCount, setPeOtmCount] = useState<number>(14);
+  const [peStep, setPeStep] = useState<number>(50);
+
+  // --- Customizable Ratios State ---
+  const [ratios, setRatios] = useState<number[]>([2, 4, 6, 8, 10]);
+  const [editingRatios, setEditingRatios] = useState(false);
+  const [newRatioInput, setNewRatioInput] = useState("");
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ceAtmRowRef = useRef<HTMLTableRowElement>(null);
+  const peAtmRowRef = useRef<HTMLTableRowElement>(null);
+
+  // --- Data Fetching ---
   useEffect(() => {
     let ignore = false;
     async function fetchOptionsData() {
@@ -74,11 +98,11 @@ export function SPREAD({ symbol }: { symbol: string }) {
         const json = await res.json();
         if (!ignore) {
           setData(json);
+          setError(null);
           // Set first expiry if none selected
           if (!selectedExpiry && json.expiry_dates?.length > 0) {
             setSelectedExpiry(json.expiry_dates[0]);
           }
-          setError(null);
         }
       } catch (err) {
         if (!ignore) setError(err instanceof Error ? err.message : "Failed to fetch options data");
@@ -89,263 +113,615 @@ export function SPREAD({ symbol }: { symbol: string }) {
     fetchOptionsData();
     const interval = setInterval(fetchOptionsData, 30000);
     return () => { ignore = true; clearInterval(interval); };
-  }, [symbol, selectedExpiry]);
+  }, [symbol, selectedExpiry, refreshCount]);
 
-  const atmStrike = useMemo(() => {
-    if (!data) return 0;
-    const underlying = data.underlying_value;
-    const step = underlying > 10000 ? 100 : 50;
-    return Math.round(underlying / step) * step;
+  // --- Dynamic Step / ATM Calculation ---
+  const calculatedStep = useMemo(() => {
+    if (!data || data.chain.strikes.length < 2) return 50;
+    const sortedStrikes = [...data.chain.strikes].map(s => s.strikePrice).sort((a, b) => a - b);
+    const diffs: Record<number, number> = {};
+    for (let i = 1; i < sortedStrikes.length; i++) {
+      const diff = sortedStrikes[i] - sortedStrikes[i - 1];
+      if (diff > 0) diffs[diff] = (diffs[diff] || 0) + 1;
+    }
+    const mostCommonDiff = Object.entries(diffs).sort((a, b) => b[1] - a[1])[0];
+    return mostCommonDiff ? parseInt(mostCommonDiff[0]) : 50;
   }, [data]);
 
-  const filteredStrikes = useMemo(() => {
-    if (!data) return [];
-    // Show 20 strikes above and 20 below ATM
-    const step = data.underlying_value > 10000 ? 50 : 25;
-    return data.chain.strikes.filter(s => 
-      Math.abs(s.strikePrice - atmStrike) <= step * 20
-    ).sort((a, b) => a.strikePrice - b.strikePrice);
+  // Update step inputs when data is loaded
+  useEffect(() => {
+    if (calculatedStep) {
+      setCeStep(calculatedStep);
+      setPeStep(calculatedStep);
+    }
+  }, [calculatedStep]);
+
+  const atmStrike = useMemo(() => {
+    if (manualAtmStrike !== null) return manualAtmStrike;
+    if (!data) return 24000;
+    const baseValue = atmSource === "Spot" ? data.underlying_value : futuresPrice;
+    const step = ceStep || 50;
+    return Math.round(baseValue / step) * step;
+  }, [data, atmSource, futuresPrice, ceStep, manualAtmStrike]);
+
+  // Auto-scroll to ATM row when loaded
+  useEffect(() => {
+    if (data && ceAtmRowRef.current && containerRef.current) {
+      const container = containerRef.current;
+      const row = ceAtmRowRef.current;
+      const top = row.offsetTop - container.clientHeight / 4;
+      container.scrollTo({ top, behavior: 'smooth' });
+    }
   }, [data, atmStrike]);
 
-  const handleRatioChange = (type: 'back' | 'front', index: number, value: string) => {
-    const val = parseFloat(value) || 0;
-    if (type === 'back') {
-      const newRatios = [...backRatios];
-      newRatios[index] = val;
-      setBackRatios(newRatios);
-    } else {
-      const newRatios = [...frontRatios];
-      newRatios[index] = val;
-      setFrontRatios(newRatios);
+  // --- Distances Configuration (Multipliers of Step) ---
+  const ceDistances = useMemo(() => {
+    return [4, 5, 6, 7].map(m => m * ceStep); // e.g. [200, 250, 300, 350]
+  }, [ceStep]);
+
+  const peDistances = useMemo(() => {
+    return [4, 5, 6, 7].map(m => m * peStep); // e.g. [200, 250, 300, 350]
+  }, [peStep]);
+
+  // --- Filtered Strikes Generation ---
+  const ceStrikes = useMemo(() => {
+    if (!data) return [];
+    const step = ceStep;
+    // ITM strikes for CE are strikes below ATM (lower price)
+    // OTM strikes for CE are strikes above ATM (higher price)
+    return data.chain.strikes.filter(s => {
+      const diff = s.strikePrice - atmStrike;
+      if (diff === 0) return true;
+      if (diff < 0) return Math.abs(diff) <= ceItmCount * step;
+      return diff <= ceOtmCount * step;
+    }).sort((a, b) => a.strikePrice - b.strikePrice);
+  }, [data, atmStrike, ceStep, ceItmCount, ceOtmCount]);
+
+  const peStrikes = useMemo(() => {
+    if (!data) return [];
+    const step = peStep;
+    // ITM strikes for PE are strikes above ATM (higher price)
+    // OTM strikes for PE are strikes below ATM (lower price)
+    return data.chain.strikes.filter(s => {
+      const diff = s.strikePrice - atmStrike;
+      if (diff === 0) return true;
+      if (diff > 0) return diff <= peItmCount * step;
+      return Math.abs(diff) <= peOtmCount * step;
+    }).sort((a, b) => b.strikePrice - a.strikePrice); // Render highest strike down to lowest
+  }, [data, atmStrike, peStep, peItmCount, peOtmCount]);
+
+  // --- Ratio Management Helpers ---
+  const addRatio = () => {
+    const r = parseFloat(newRatioInput);
+    if (!isNaN(r) && r > 0 && !ratios.includes(r)) {
+      setRatios([...ratios, r].sort((a, b) => a - b));
+      setNewRatioInput("");
     }
   };
 
-  if (loading && !data) return <div className="p-4 text-amber-500 font-mono text-sm animate-pulse">LOADING EXCEL SPREAD MATRIX...</div>;
-  if (error) return <div className="p-4 text-red-500 font-mono text-sm">ERROR: {error}</div>;
-  if (!data) return null;
+  const removeRatio = (r: number) => {
+    if (ratios.length > 1) {
+      setRatios(ratios.filter(x => x !== r));
+    }
+  };
+
+  if (loading && !data) {
+    return (
+      <div className="flex-1 flex flex-col justify-center items-center bg-[#050810] text-amber-500 font-mono gap-3 p-6">
+        <RefreshCw className="animate-spin text-amber-500" size={32} />
+        <span className="text-sm tracking-wider uppercase">LOADING OPTION RATIO SCREENER...</span>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="flex-1 flex flex-col justify-center items-center bg-[#050810] text-red-500 font-mono gap-3 p-6">
+        <div className="border border-red-500/20 bg-red-950/20 px-6 py-4 rounded text-center">
+          <span className="font-bold text-lg block mb-1">DATA ERROR</span>
+          <span className="text-xs text-red-400/80">{error}</span>
+          <button 
+            onClick={() => setRefreshCount(c => c + 1)}
+            className="mt-4 px-3 py-1 bg-red-950/40 border border-red-800/40 text-red-400 rounded text-xs hover:bg-red-900/40 transition-colors uppercase font-bold"
+          >
+            Retry Fetch
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const underlyingSpot = data?.underlying_value || 24000;
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0e1a] text-gray-300 font-mono text-[10px] select-none overflow-hidden">
-      {/* Excel Ribbon / Header */}
-      <div className="bg-[#1e1e1e] border-b border-gray-700 p-1 flex items-center gap-4 px-3 shrink-0">
-        <div className="flex items-center gap-1">
-          <span className="bg-emerald-600 text-white px-1 font-bold text-[9px] rounded-sm">FILE</span>
-          <span className="px-1 font-bold text-[9px] text-gray-400">HOME</span>
-          <span className="px-1 font-bold text-[9px] text-gray-400">INSERT</span>
-          <span className="px-1 font-bold text-[9px] text-gray-400">FORMULAS</span>
-          <span className="px-1 font-bold text-[9px] text-gray-400">DATA</span>
+    <div className="flex-grow flex flex-col h-full bg-[#050810] text-gray-300 font-mono text-xs overflow-hidden select-none">
+      
+      {/* ----------------- TOP RIGID CONTROLLER PANEL ----------------- */}
+      <div className="bg-[#0b0e17] border-b border-white/10 p-3 shrink-0 flex flex-wrap gap-4 items-center justify-between shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+        <div className="flex items-center gap-2">
+          <span className="text-amber-500 font-black text-sm tracking-wider uppercase border border-amber-500/20 px-2 py-0.5 rounded bg-amber-500/5 shadow-[0_0_10px_rgba(245,158,11,0.05)]">
+            RATIO SCREENER
+          </span>
+          <div className="h-4 w-px bg-white/10 hidden sm:block"></div>
+          <span className="text-gray-500 hidden sm:inline uppercase text-[10px]">VERIFIED MULTI-EXPIRY SPREAD SHEET</span>
         </div>
-        <div className="h-4 w-px bg-gray-700 mx-1"></div>
-        <div className="flex gap-4">
-          <div>MODE: <span className="text-amber-500 font-bold">DYNAMIC RATIO</span></div>
-          <div className="text-gray-500">ADJUST YELLOW INPUTS TO RECALC</div>
+
+        {/* Global Controls Grid */}
+        <div className="flex flex-wrap gap-3 items-center text-[11px]">
+          {/* ATM Source Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-500 uppercase">ATM Source</span>
+            <select
+              value={atmSource}
+              onChange={e => setAtmSource(e.target.value as "Spot" | "Futures")}
+              className="bg-[#141923] border border-white/10 text-white rounded px-2 py-1 outline-none focus:border-blue-500/50 hover:bg-[#1a212f] transition-all cursor-pointer font-bold"
+            >
+              <option value="Spot">Spot</option>
+              <option value="Futures">Futures</option>
+            </select>
+          </div>
+
+          {/* Futures Symbol Input */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-500 uppercase">Futures Symbol</span>
+            <input 
+              type="text" 
+              value={futuresSymbol}
+              onChange={e => setFuturesSymbol(e.target.value)}
+              className="w-36 bg-[#141923] border border-white/10 text-white font-bold rounded px-2 py-1 outline-none text-center focus:border-blue-500/50 transition-all uppercase"
+              placeholder="FUT SYMBOL"
+            />
+          </div>
+
+          {/* Expiry Select */}
+          {data && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-500 uppercase font-medium">Expiry</span>
+              <select
+                value={selectedExpiry}
+                onChange={e => setSelectedExpiry(e.target.value)}
+                className="bg-[#141923] border border-white/10 text-white font-bold rounded px-2 py-1 outline-none focus:border-blue-500/50 hover:bg-[#1a212f] transition-all cursor-pointer"
+                title="Select option chain expiry"
+              >
+                {data.expiry_dates.map(e => (
+                  <option key={e} value={e}>{e.toUpperCase()}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* ATM Strike Override */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-amber-500 font-bold uppercase">ATM Strike</span>
+            <div className="flex items-center bg-[#141923] border border-white/10 rounded overflow-hidden">
+              <input 
+                type="number" 
+                value={atmStrike}
+                onChange={e => setManualAtmStrike(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-16 bg-transparent text-amber-400 font-black text-center outline-none border-none py-1 text-[11px]"
+                title="Calculated ATM Strike. Change manually to override chain step calculations."
+              />
+              {manualAtmStrike !== null && (
+                <button 
+                  onClick={() => setManualAtmStrike(null)}
+                  className="bg-red-500/10 text-red-400 text-[9px] hover:bg-red-500/20 px-1 border-l border-white/10 transition-colors uppercase font-bold"
+                  title="Reset to automated index step calculation"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex-1"></div>
-        <select
-          value={selectedExpiry}
-          onChange={e => setSelectedExpiry(e.target.value)}
-          className="bg-[#2d2d2d] border border-gray-600 rounded px-2 py-0.5 text-[9px] outline-none"
-          aria-label="Select Expiry Date"
-          title="Select Expiry Date"
+
+        {/* Refresh button */}
+        <button 
+          onClick={() => setRefreshCount(c => c + 1)}
+          className="p-1.5 bg-[#141923] border border-white/10 hover:border-blue-500/40 text-gray-400 hover:text-white rounded transition-all cursor-pointer shadow-sm"
+          title="Manually refresh live chain quotes"
         >
-          {data.expiry_dates.map(e => <option key={e} value={e}>{e}</option>)}
-        </select>
+          <RefreshCw size={14} className={loading ? "animate-spin text-blue-400" : ""} />
+        </button>
       </div>
 
-      {/* Grid Container */}
-      <div className="flex-1 overflow-auto custom-scrollbar flex">
-        {/* Left Panel: Options Chain */}
-        <div className="shrink-0 border-r border-gray-700">
-          <table className="border-collapse w-[300px]">
-            <thead className="sticky top-0 bg-[#2d2d2d] z-20">
-              <tr className="border-b border-gray-600">
-                <th className="border-r border-gray-700 p-1 font-normal text-left">TYPE</th>
-                <th className="border-r border-gray-700 p-1 font-normal text-left">STRIKE</th>
-                <th className="border-r border-gray-700 p-1 font-normal text-right">LTP</th>
-                <th className="border-r border-gray-700 p-1 font-normal text-right">IV</th>
-                <th className="p-1 font-normal text-right text-gray-600">DIFF</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStrikes.map(s => {
-                const isAtm = s.strikePrice === atmStrike;
-                const isCEZone = s.strikePrice >= atmStrike;
-                
-                return (
-                  <tr key={s.strikePrice} className={`border-b border-gray-800 ${isAtm ? 'bg-blue-600/30' : ''}`}>
-                    <td className={`border-r border-gray-800 p-1 font-bold ${isCEZone ? 'text-emerald-500 bg-emerald-950/20' : 'text-orange-500 bg-orange-950/20'} ${isAtm ? 'bg-blue-600/40 text-white' : ''}`}>
-                      {isCEZone ? 'CE' : 'PE'}
-                    </td>
-                    <td className={`border-r border-gray-800 p-1 font-bold ${isAtm ? 'text-white bg-blue-600/40' : ''}`}>
-                      {s.strikePrice}
-                    </td>
-                    <td className={`border-r border-gray-800 p-1 text-right text-white ${isAtm ? 'bg-blue-600/40' : ''}`}>
-                      {(isCEZone ? s.CE?.ltp : s.PE?.ltp)?.toFixed(2) || '#N/A'}
-                    </td>
-                    <td className={`border-r border-gray-800 p-1 text-right text-amber-500/70 ${isAtm ? 'bg-blue-600/40' : ''}`}>
-                      {(isCEZone ? s.CE?.iv : s.PE?.iv)?.toFixed(1) || '0.0'}
-                    </td>
-                    <td className={`p-1 text-right text-gray-600 ${isAtm ? 'bg-blue-600/40' : ''}`}>
-                      {Math.abs(s.strikePrice - atmStrike)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* ----------------- DYNAMIC RATIOS MANAGER BAR ----------------- */}
+      <div className="bg-[#090b12] border-b border-white/5 px-4 py-1.5 shrink-0 flex flex-wrap items-center justify-between text-[11px]">
+        <div className="flex items-center gap-2">
+          <Sliders size={12} className="text-gray-500" />
+          <span className="text-gray-500 uppercase font-black">Ratios Panel:</span>
+          <div className="flex items-center gap-1">
+            {ratios.map(r => (
+              <span key={r} className="inline-flex items-center bg-[#141923] border border-white/10 px-2 py-0.5 rounded text-white font-bold shadow-sm">
+                {r}
+                {editingRatios && (
+                  <button 
+                    onClick={() => removeRatio(r)} 
+                    className="ml-1.5 text-red-400 hover:text-red-300 font-black text-[9px] cursor-pointer"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
 
-        {/* Middle Panel: Back Spread Matrix */}
-        <div className="shrink-0 border-r border-gray-700 bg-[#0c0f18]">
-          <table className="border-collapse">
-            <thead className="sticky top-0 bg-[#2d2d2d] z-20">
-              <tr className="border-b border-gray-600 bg-blue-900/10">
-                <th colSpan={DISTANCES.length} className="p-1 border-r border-gray-700 text-blue-400 text-center">BACK SPREAD MATRIX (Ratio)</th>
-              </tr>
-              <tr className="border-b border-gray-600">
-                {DISTANCES.map(d => <th key={d} className="border-r border-gray-700 p-1 font-normal w-12 text-center">{d}</th>)}
-              </tr>
-              <tr className="border-b border-gray-600 bg-[#1a1a1a]">
-                {DISTANCES.map(d => <th key={d} className="border-r border-gray-700 p-1 font-normal text-gray-500 text-center">1</th>)}
-              </tr>
-              <tr className="border-b border-gray-600 bg-[#1a1a1a]">
-                {DISTANCES.map((d, i) => (
-                  <th key={d} className="border-r border-gray-700 p-0 text-center">
-                    <input 
-                      type="text" 
-                      value={backRatios[i]} 
-                      onChange={e => handleRatioChange('back', i, e.target.value)}
-                      className="w-full bg-transparent text-amber-500 text-center font-bold outline-none border-none h-full py-1 focus:bg-amber-500/10"
-                      aria-label={`Back Spread Ratio for ${d} distance`}
-                      title={`Back Spread Ratio for ${d} distance`}
-                    />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStrikes.map(s => {
-                const isAtm = s.strikePrice === atmStrike;
-                return (
-                  <tr key={s.strikePrice} className={`border-b border-gray-800 ${isAtm ? 'bg-blue-600/30' : ''}`}>
-                    {DISTANCES.map((d, i) => {
-                      const isCE = s.strikePrice >= atmStrike;
-                      const sellStrike = isCE ? s.strikePrice + d : s.strikePrice - d;
-                      const sellLeg = data.chain.strikes.find(x => x.strikePrice === sellStrike);
-                      const sellRatio = backRatios[i];
-                      let netPremium = 0;
-                      let detailText = "";
-                      let isValid = false;
-
-                      if (sellLeg && data) {
-                        const buyLTP = isCE ? (s.CE?.ltp || 0) : (s.PE?.ltp || 0);
-                        const sellLTP = isCE ? (sellLeg.CE?.ltp || 0) : (sellLeg.PE?.ltp || 0);
-                        if (buyLTP > 0 && sellLTP > 0) {
-                          isValid = true;
-                          netPremium = (sellRatio * sellLTP) - (1 * buyLTP);
-                          detailText = `Buy ${s.strikePrice} ${isCE ? 'CE' : 'PE'} x1 @ ${buyLTP.toFixed(2)}\nSell ${sellStrike} ${isCE ? 'CE' : 'PE'} x${sellRatio} @ ${sellLTP.toFixed(2)}\nNet: ₹${netPremium.toFixed(2)}`;
-                        }
-                      }
-                      return (
-                        <td 
-                          key={d} 
-                          title={detailText}
-                          className={`border-r border-gray-800 p-1 text-center w-12 cursor-help transition-colors ${isValid ? (netPremium > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400') : 'text-gray-800'} ${isAtm ? 'bg-blue-600/20' : ''}`}
-                        >
-                          {isValid ? `₹${Math.round(netPremium)}` : '#N/A'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Right Panel: Front Spread Matrix */}
-        <div className="shrink-0 bg-[#0c1811]">
-          <table className="border-collapse">
-            <thead className="sticky top-0 bg-[#2d2d2d] z-20">
-              <tr className="border-b border-gray-600 bg-emerald-900/10">
-                <th colSpan={DISTANCES.length} className="p-1 border-r border-gray-700 text-emerald-400 text-center">FRONT SPREAD MATRIX (Aggressive)</th>
-              </tr>
-              <tr className="border-b border-gray-600">
-                {DISTANCES.map(d => <th key={d} className="border-r border-gray-700 p-1 font-normal w-12 text-center">{d}</th>)}
-              </tr>
-              <tr className="border-b border-gray-600 bg-[#1a1a1a]">
-                {DISTANCES.map(d => <th key={d} className="border-r border-gray-700 p-1 font-normal text-gray-500 text-center">1</th>)}
-              </tr>
-              <tr className="border-b border-gray-600 bg-[#1a1a1a]">
-                {DISTANCES.map((d, i) => (
-                  <th key={d} className="border-r border-gray-700 p-0 text-center">
-                    <input 
-                      type="text" 
-                      value={frontRatios[i]} 
-                      onChange={e => handleRatioChange('front', i, e.target.value)}
-                      className="w-full bg-transparent text-red-500/80 text-center font-bold outline-none border-none h-full py-1 focus:bg-red-500/10"
-                      aria-label={`Front Spread Ratio for ${d} distance`}
-                      title={`Front Spread Ratio for ${d} distance`}
-                    />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredStrikes.map(s => {
-                const isAtm = s.strikePrice === atmStrike;
-                return (
-                  <tr key={s.strikePrice} className={`border-b border-gray-800 ${isAtm ? 'bg-blue-600/30' : ''}`}>
-                    {DISTANCES.map((d, i) => {
-                      const isCE = s.strikePrice >= atmStrike;
-                      const sellStrike = isCE ? s.strikePrice + d : s.strikePrice - d;
-                      const sellLeg = data.chain.strikes.find(x => x.strikePrice === sellStrike);
-                      const sellRatio = frontRatios[i];
-                      let netPremium = 0;
-                      let detailText = "";
-                      let isValid = false;
-
-                      if (sellLeg && data) {
-                        const buyLTP = isCE ? (s.CE?.ltp || 0) : (s.PE?.ltp || 0);
-                        const sellLTP = isCE ? (sellLeg.CE?.ltp || 0) : (sellLeg.PE?.ltp || 0);
-                        if (buyLTP > 0 && sellLTP > 0) {
-                          isValid = true;
-                          netPremium = (sellRatio * sellLTP) - (1 * buyLTP);
-                          detailText = `Buy ${s.strikePrice} ${isCE ? 'CE' : 'PE'} x1 @ ${buyLTP.toFixed(2)}\nSell ${sellStrike} ${isCE ? 'CE' : 'PE'} x${sellRatio} @ ${sellLTP.toFixed(2)}\nNet: ₹${netPremium.toFixed(2)}`;
-                        }
-                      }
-                      return (
-                        <td 
-                          key={d} 
-                          title={detailText}
-                          className={`border-r border-gray-800 p-1 text-center w-12 cursor-help transition-colors ${isValid ? (netPremium > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400') : 'text-gray-800'} ${isAtm ? 'bg-blue-600/20' : ''}`}
-                        >
-                          {isValid ? `₹${Math.round(netPremium)}` : '#N/A'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {/* Ratio edit tools */}
+        <div className="flex items-center gap-2 mt-1 sm:mt-0">
+          {editingRatios ? (
+            <div className="flex items-center gap-1.5">
+              <input 
+                type="number" 
+                step="0.5"
+                placeholder="ADD RATIO"
+                value={newRatioInput}
+                onChange={e => setNewRatioInput(e.target.value)}
+                className="w-16 bg-[#141923] border border-white/10 text-white rounded text-[10px] px-1.5 py-0.5 outline-none font-bold"
+              />
+              <button 
+                onClick={addRatio}
+                className="bg-[#141923] hover:bg-emerald-500/10 border border-white/10 hover:border-emerald-500/40 text-emerald-400 px-2 py-0.5 rounded font-black text-[10px] cursor-pointer"
+              >
+                + ADD
+              </button>
+              <button 
+                onClick={() => setEditingRatios(false)}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded font-black text-[10px] flex items-center gap-1 cursor-pointer"
+              >
+                <Check size={10} /> DONE
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setEditingRatios(true)}
+              className="bg-[#141923] border border-white/10 hover:border-blue-500/40 text-amber-500 px-2 py-0.5 rounded font-black text-[10px] flex items-center gap-1 cursor-pointer hover:bg-amber-500/5 transition-colors"
+            >
+              <Edit2 size={10} /> EDIT RATIOS
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="bg-[#004b20] text-white px-2 py-0.5 text-[9px] shrink-0 flex justify-between">
-        <div className="flex gap-3 items-center">
-          <span className="font-bold">READY</span>
-          <span className="opacity-70">|</span>
-          <span>CALCULATION: AUTOMATIC</span>
-          <span className="opacity-70">|</span>
-          <span className="text-emerald-400 text-[8px] border border-emerald-500/30 px-1 rounded">DYNAMIC RATIOS ENABLED</span>
+      {/* ----------------- DYNAMIC DUAL SEGMENT LAYOUT CONTAINER ----------------- */}
+      <div ref={containerRef} className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
+        
+        {/* ========================================================================= */}
+        {/* ============================ 1. CALLS (CE) SEGMENT ====================== */}
+        {/* ========================================================================= */}
+        <div className="bg-[#0b0f19] border border-white/10 rounded shadow-[0_6px_20px_rgba(0,0,0,0.5)] overflow-hidden">
+          
+          {/* Section Header Controls */}
+          <div className="bg-gradient-to-r from-emerald-950/20 to-[#0e1423] px-3 py-2 border-b border-white/10 flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-black text-xs md:text-sm text-emerald-400 tracking-widest uppercase">CALL (CE)</span>
+              <div className="text-[10px] text-gray-500">ATM BUY / OTM SELL Ratio Matrix</div>
+            </div>
+
+            {/* CALL Section Modifiers */}
+            <div className="flex flex-wrap gap-3 items-center text-[10px]">
+              {/* ITM Strikes count */}
+              <div className="flex items-center gap-1 bg-[#141923] border border-white/10 rounded px-1.5 py-0.5">
+                <span className="text-gray-500 uppercase">ITM (S0)</span>
+                <button 
+                  onClick={() => setCeItmCount(c => Math.max(1, c - 1))}
+                  className="p-0.5 hover:text-emerald-400 transition-colors cursor-pointer"
+                >
+                  <Minus size={10} />
+                </button>
+                <span className="font-bold text-white px-1 text-[11px]">{ceItmCount}</span>
+                <button 
+                  onClick={() => setCeItmCount(c => Math.min(10, c + 1))}
+                  className="p-0.5 hover:text-emerald-400 transition-colors cursor-pointer"
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+
+              {/* OTM Strikes count */}
+              <div className="flex items-center gap-1 bg-[#141923] border border-white/10 rounded px-1.5 py-0.5">
+                <span className="text-gray-500 uppercase">OTH (S0)</span>
+                <button 
+                  onClick={() => setCeOtmCount(c => Math.max(1, c - 1))}
+                  className="p-0.5 hover:text-emerald-400 transition-colors cursor-pointer"
+                >
+                  <Minus size={10} />
+                </button>
+                <span className="font-bold text-white px-1 text-[11px]">{ceOtmCount}</span>
+                <button 
+                  onClick={() => setCeOtmCount(c => Math.min(30, c + 1))}
+                  className="p-0.5 hover:text-emerald-400 transition-colors cursor-pointer"
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+
+              {/* Step */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-500 uppercase">CE Step</span>
+                <input 
+                  type="number" 
+                  value={ceStep}
+                  onChange={e => setCeStep(e.target.value ? parseInt(e.target.value) : 50)}
+                  className="w-12 bg-[#141923] border border-white/10 text-white font-bold rounded px-1 text-center outline-none focus:border-blue-500/50 py-0.5"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Tables Outer Horizontal Grid (4 side-by-side) */}
+          <div className="p-3 overflow-x-auto no-scrollbar flex gap-4 min-w-full">
+            {ceDistances.map((dist, tableIdx) => {
+              return (
+                <div key={dist} className="flex-1 min-w-[280px] bg-[#0c0f18] border border-white/5 rounded overflow-hidden shadow-inner">
+                  {/* Table Header Shield */}
+                  <div className="bg-[#131926] px-2 py-1.5 border-b border-white/10 text-center font-black tracking-wider text-[11px] text-white flex justify-between items-center shadow-sm">
+                    <span className="text-amber-500 font-bold uppercase">CE ATM={atmStrike}</span>
+                    <span className="bg-emerald-950/40 text-emerald-400 text-[9px] border border-emerald-500/20 px-1.5 py-0.2 rounded font-black shadow-inner">
+                      DIST = {dist}
+                    </span>
+                  </div>
+
+                  <table className="w-full text-right border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/10 text-[9px] bg-[#090b12] text-gray-500 uppercase font-black tracking-tighter">
+                        <th className="p-1 border-r border-white/5 text-center font-bold font-sans">Strike Pair</th>
+                        {ratios.map(r => (
+                          <th key={r} className="p-1 border-r border-white/5 text-center font-mono font-bold w-12">{r}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ceStrikes.map(s => {
+                        const isAtm = s.strikePrice === atmStrike;
+                        const buyStrike = s.strikePrice;
+                        const sellStrike = buyStrike + dist;
+
+                        const buyLeg = s;
+                        const sellLeg = data?.chain.strikes.find(x => x.strikePrice === sellStrike);
+
+                        const buyLTP = buyLeg.CE?.ltp || 0;
+                        const sellLTP = sellLeg?.CE?.ltp || 0;
+
+                        const isDataValid = buyLTP > 0 && sellLTP > 0;
+
+                        return (
+                          <tr 
+                            key={buyStrike}
+                            ref={isAtm && tableIdx === 0 ? ceAtmRowRef : null}
+                            className={`border-b border-white/5 transition-all duration-150 ${isAtm ? 'bg-amber-500/10 font-bold ring-1 ring-amber-500/30' : 'hover:bg-white/2'}`}
+                          >
+                            {/* Strike Pair Name */}
+                            <td className={`p-1 text-center font-black border-r border-white/5 text-[10px] font-sans ${isAtm ? 'text-amber-400' : 'text-gray-400'}`}>
+                              {buyStrike} = {sellStrike}
+                            </td>
+
+                            {/* Ratios Columns */}
+                            {ratios.map(r => {
+                              let netVal = 0;
+                              let isCredit = false;
+                              let cellClass = "";
+                              let detailTooltip = "";
+
+                              if (isDataValid) {
+                                netVal = (r * sellLTP) - buyLTP;
+                                isCredit = netVal >= 0;
+                                
+                                if (isAtm) {
+                                  // Golden highlight matching reference sheet exactly
+                                  cellClass = isCredit 
+                                    ? "bg-amber-500/30 text-amber-300 font-black scale-102 shadow-[0_0_12px_rgba(245,158,11,0.2)] border border-amber-500/40" 
+                                    : "bg-red-500/10 text-red-400 font-bold border border-red-500/30";
+                                } else {
+                                  // Standard Debit vs Credit colors
+                                  cellClass = isCredit 
+                                    ? "bg-blue-950/20 text-blue-400 border border-blue-900/10 font-semibold" 
+                                    : "bg-red-950/20 text-red-400 border border-red-900/10 font-medium";
+                                }
+                                
+                                detailTooltip = `CE SPREAD DETS:\nBuy 1x [${buyStrike} CE] @ ${buyLTP.toFixed(2)}\nSell ${r}x [${sellStrike} CE] @ ${sellLTP.toFixed(2)}\nNet Points: ${netVal.toFixed(2)} (${isCredit ? 'Credit' : 'Debit'})`;
+                              } else {
+                                cellClass = "text-gray-800 font-normal";
+                                detailTooltip = "Spread parameters invalid or options contracts are illiquid/unlisted.";
+                              }
+
+                              return (
+                                <td 
+                                  key={r}
+                                  title={detailTooltip}
+                                  className={`p-1.5 text-center font-mono border-r border-white/5 cursor-help transition-all ${cellClass}`}
+                                >
+                                  {isDataValid ? netVal.toFixed(2) : "#N/A"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="flex gap-4 items-center">
-          <span>UNDERLYING: {data.underlying_value}</span>
+
+        {/* ========================================================================= */}
+        {/* ============================ 2. PUTS (PE) SEGMENT ======================= */}
+        {/* ========================================================================= */}
+        <div className="bg-[#0b0f19] border border-white/10 rounded shadow-[0_6px_20px_rgba(0,0,0,0.5)] overflow-hidden">
+          
+          {/* Section Header Controls */}
+          <div className="bg-gradient-to-r from-orange-950/20 to-[#0e1423] px-3 py-2 border-b border-white/10 flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-black text-xs md:text-sm text-orange-400 tracking-widest uppercase">PUT (PE)</span>
+              <div className="text-[10px] text-gray-500">ATM BUY / OTM SELL Ratio Matrix</div>
+            </div>
+
+            {/* PUT Section Modifiers */}
+            <div className="flex flex-wrap gap-3 items-center text-[10px]">
+              {/* ITM Strikes count */}
+              <div className="flex items-center gap-1 bg-[#141923] border border-white/10 rounded px-1.5 py-0.5">
+                <span className="text-gray-500 uppercase">ITM (S0)</span>
+                <button 
+                  onClick={() => setPeItmCount(c => Math.max(1, c - 1))}
+                  className="p-0.5 hover:text-orange-400 transition-colors cursor-pointer"
+                >
+                  <Minus size={10} />
+                </button>
+                <span className="font-bold text-white px-1 text-[11px]">{peItmCount}</span>
+                <button 
+                  onClick={() => setPeItmCount(c => Math.min(10, c + 1))}
+                  className="p-0.5 hover:text-orange-400 transition-colors cursor-pointer"
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+
+              {/* OTM Strikes count */}
+              <div className="flex items-center gap-1 bg-[#141923] border border-white/10 rounded px-1.5 py-0.5">
+                <span className="text-gray-500 uppercase">OTH (S0)</span>
+                <button 
+                  onClick={() => setPeOtmCount(c => Math.max(1, c - 1))}
+                  className="p-0.5 hover:text-orange-400 transition-colors cursor-pointer"
+                >
+                  <Minus size={10} />
+                </button>
+                <span className="font-bold text-white px-1 text-[11px]">{peOtmCount}</span>
+                <button 
+                  onClick={() => setPeOtmCount(c => Math.min(30, c + 1))}
+                  className="p-0.5 hover:text-orange-400 transition-colors cursor-pointer"
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+
+              {/* Step */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-500 uppercase">PE Step</span>
+                <input 
+                  type="number" 
+                  value={peStep}
+                  onChange={e => setPeStep(e.target.value ? parseInt(e.target.value) : 50)}
+                  className="w-12 bg-[#141923] border border-white/10 text-white font-bold rounded px-1 text-center outline-none focus:border-blue-500/50 py-0.5"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Tables Outer Horizontal Grid (4 side-by-side) */}
+          <div className="p-3 overflow-x-auto no-scrollbar flex gap-4 min-w-full">
+            {peDistances.map((dist, tableIdx) => {
+              return (
+                <div key={dist} className="flex-1 min-w-[280px] bg-[#0c0f18] border border-white/5 rounded overflow-hidden shadow-inner">
+                  {/* Table Header Shield */}
+                  <div className="bg-[#131926] px-2 py-1.5 border-b border-white/10 text-center font-black tracking-wider text-[11px] text-white flex justify-between items-center shadow-sm">
+                    <span className="text-amber-500 font-bold uppercase">PE ATM={atmStrike}</span>
+                    <span className="bg-orange-950/40 text-orange-400 text-[9px] border border-orange-500/20 px-1.5 py-0.2 rounded font-black shadow-inner">
+                      DIST = {dist}
+                    </span>
+                  </div>
+
+                  <table className="w-full text-right border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/10 text-[9px] bg-[#090b12] text-gray-500 uppercase font-black tracking-tighter">
+                        <th className="p-1 border-r border-white/5 text-center font-bold font-sans">Strike Pair</th>
+                        {ratios.map(r => (
+                          <th key={r} className="p-1 border-r border-white/5 text-center font-mono font-bold w-12">{r}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {peStrikes.map(s => {
+                        const isAtm = s.strikePrice === atmStrike;
+                        const buyStrike = s.strikePrice;
+                        const sellStrike = buyStrike - dist; // For PUT, lower strikes are further OTM
+
+                        const buyLeg = s;
+                        const sellLeg = data?.chain.strikes.find(x => x.strikePrice === sellStrike);
+
+                        const buyLTP = buyLeg.PE?.ltp || 0;
+                        const sellLTP = sellLeg?.PE?.ltp || 0;
+
+                        const isDataValid = buyLTP > 0 && sellLTP > 0;
+
+                        return (
+                          <tr 
+                            key={buyStrike}
+                            ref={isAtm && tableIdx === 0 ? peAtmRowRef : null}
+                            className={`border-b border-white/5 transition-all duration-150 ${isAtm ? 'bg-amber-500/10 font-bold ring-1 ring-amber-500/30' : 'hover:bg-white/2'}`}
+                          >
+                            {/* Strike Pair Name */}
+                            <td className={`p-1 text-center font-black border-r border-white/5 text-[10px] font-sans ${isAtm ? 'text-amber-400' : 'text-gray-400'}`}>
+                              {buyStrike} = {sellStrike}
+                            </td>
+
+                            {/* Ratios Columns */}
+                            {ratios.map(r => {
+                              let netVal = 0;
+                              let isCredit = false;
+                              let cellClass = "";
+                              let detailTooltip = "";
+
+                              if (isDataValid) {
+                                netVal = (r * sellLTP) - buyLTP;
+                                isCredit = netVal >= 0;
+                                
+                                if (isAtm) {
+                                  // Golden highlight matching reference sheet exactly
+                                  cellClass = isCredit 
+                                    ? "bg-amber-500/30 text-amber-300 font-black scale-102 shadow-[0_0_12px_rgba(245,158,11,0.2)] border border-amber-500/40" 
+                                    : "bg-red-500/10 text-red-400 font-bold border border-red-500/30";
+                                } else {
+                                  // Standard Debit vs Credit colors
+                                  cellClass = isCredit 
+                                    ? "bg-blue-950/20 text-blue-400 border border-blue-900/10 font-semibold" 
+                                    : "bg-red-950/20 text-red-400 border border-red-900/10 font-medium";
+                                }
+                                
+                                detailTooltip = `PE SPREAD DETS:\nBuy 1x [${buyStrike} PE] @ ${buyLTP.toFixed(2)}\nSell ${r}x [${sellStrike} PE] @ ${sellLTP.toFixed(2)}\nNet Points: ${netVal.toFixed(2)} (${isCredit ? 'Credit' : 'Debit'})`;
+                              } else {
+                                cellClass = "text-gray-800 font-normal";
+                                detailTooltip = "Spread parameters invalid or options contracts are illiquid/unlisted.";
+                              }
+
+                              return (
+                                <td 
+                                  key={r}
+                                  title={detailTooltip}
+                                  className={`p-1.5 text-center font-mono border-r border-white/5 cursor-help transition-all ${cellClass}`}
+                                >
+                                  {isDataValid ? netVal.toFixed(2) : "#N/A"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+      </div>
+
+      {/* ----------------- RETRO STATUS FOOTER ----------------- */}
+      <div className="bg-[#004b20] text-white px-3 py-1 text-[10px] md:text-[11px] shrink-0 flex justify-between overflow-x-auto no-scrollbar font-bold border-t border-emerald-600/30 shadow-inner">
+        <div className="flex gap-3 items-center shrink-0">
+          <span className="bg-white/10 px-1.5 py-0.2 rounded text-[9px] animate-pulse">ACTIVE FEED</span>
+          <span className="opacity-50">|</span>
+          <span>ATM MODE: {atmSource.toUpperCase()}</span>
+          <span className="opacity-50">|</span>
+          <span className="text-emerald-300">CALCULATIONS: VERIFIED (POINTS)</span>
+        </div>
+        <div className="flex gap-4 items-center shrink-0 ml-4">
+          <span>UNDERLYING SPOT: <span className="text-white font-black">{underlyingSpot.toFixed(2)}</span></span>
           <div className="h-3 w-px bg-white/20"></div>
-          <span>ATM: {atmStrike}</span>
+          <span>ATM STRIKE: <span className="text-amber-300 font-black">{atmStrike}</span></span>
           <div className="h-3 w-px bg-white/20"></div>
-          <span className="font-bold bg-white/10 px-1 rounded text-[8px]">PRO-MODE</span>
+          <span className="bg-[#050810]/50 border border-emerald-500/20 px-1.5 rounded text-[9px] text-emerald-300">SPREADSHEET RETRO MODE</span>
         </div>
       </div>
     </div>

@@ -19,6 +19,32 @@
   --text-muted: #64748b;
   --glass-bg: rgba(26, 31, 54, 0.7);
   --glass-border: rgba(255, 255, 255, 0.08);
+  
+  /* Typography Tokens - Maximum Readability */
+  --font-size-2xs: 0.875rem;  /* 14px (was 12px) */
+  --font-size-xs: 1rem;       /* 16px (was 14px) */
+  --font-size-sm: 1.125rem;   /* 18px (was 16px) */
+  --font-size-base: 1.25rem;  /* 20px (was 18px) */
+  --font-size-lg: 1.5rem;     /* 24px (was 20px) */
+}
+
+@media (max-width: 768px) {
+  :root {
+    --font-size-xs: 1rem;       /* 16px on mobile */
+    --font-size-sm: 1.125rem;   /* 18px on mobile */
+    --font-size-base: 1.25rem;  /* 20px on mobile */
+  }
+}
+
+/* Base resets for readability */
+html {
+  font-size: 18px; /* Increased base size */
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 16px;
+  }
 }
 
 /* Dark terminal aesthetic */
@@ -143,4 +169,32 @@ body {
 /* OI Heatmap Bar */
 .oi-bar {
   width: var(--oi-width, 0%);
+}
+
+/* Mobile Friendly Table Container */
+.mobile-table-container {
+  overflow-x: auto;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar but allow scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Touch Friendly Targets */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

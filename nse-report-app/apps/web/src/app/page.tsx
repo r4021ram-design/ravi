@@ -4,6 +4,7 @@ import { useWorkspaceStore } from "../store/workspaceStore";
 import { CommandBar } from "../components/CommandBar";
 import { WorkspaceTabs } from "../components/WorkspaceTabs";
 import { FunctionSidebar } from "../components/FunctionSidebar";
+import { MobileNav } from "../components/MobileNav";
 
 // Functions
 import { CC } from "../functions/CC";
@@ -65,15 +66,20 @@ export default function TerminalWorkspace() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-full bg-[#050810] text-gray-300">
+    <div className="flex flex-col min-h-svh w-full bg-[#050810] text-gray-300 pb-16 md:pb-0">
       <CommandBar />
-      <WorkspaceTabs />
+      <div className="hidden md:block">
+        <WorkspaceTabs />
+      </div>
       <div className="flex-1 flex overflow-hidden">
-        <FunctionSidebar />
-        <main className="flex-1 overflow-hidden flex flex-col relative bg-[#0a0e1a]">
+        <div className="hidden md:block">
+          <FunctionSidebar />
+        </div>
+        <main className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col relative bg-[#0a0e1a]">
           {renderActiveFunction()}
         </main>
       </div>
+      <MobileNav />
     </div>
   );
 }

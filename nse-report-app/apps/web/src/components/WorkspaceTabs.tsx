@@ -15,8 +15,8 @@ export function WorkspaceTabs() {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`
-              group flex items-center gap-2 px-3 py-1.5 text-xs font-mono border-t border-x rounded-t cursor-pointer
-              transition-colors select-none whitespace-nowrap
+              group flex items-center gap-2 px-4 py-2 text-sm md:text-base font-mono border-t border-x rounded-t cursor-pointer
+              transition-colors select-none whitespace-nowrap font-bold
               ${isActive 
                 ? "bg-[#0a0e1a] border-white/20 text-amber-500" 
                 : "bg-[#050810] border-transparent text-gray-500 hover:bg-white/5 hover:text-gray-300"

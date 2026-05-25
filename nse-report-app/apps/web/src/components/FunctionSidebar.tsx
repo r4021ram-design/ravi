@@ -41,11 +41,11 @@ export function FunctionSidebar() {
         {isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
       </button>
 
-      <div className="p-3 border-b border-gray-800 flex items-center justify-center overflow-hidden h-12 shrink-0">
-        <span className={`font-black text-amber-500 truncate transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100 text-sm' : 'opacity-0 w-0'}`}>
+      <div className="p-3 border-b border-gray-800 flex items-center justify-center overflow-hidden h-14 shrink-0">
+        <span className={`font-black text-amber-500 truncate transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100 text-base' : 'opacity-0 w-0'}`}>
           {symbol}
         </span>
-        {!isSidebarOpen && <span className="text-amber-500 text-[10px] font-bold">{symbol.substring(0, 1)}</span>}
+        {!isSidebarOpen && <span className="text-amber-500 text-xs font-bold">{symbol.substring(0, 1)}</span>}
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
@@ -64,10 +64,10 @@ export function FunctionSidebar() {
               }`}
             >
               <div className={`shrink-0 ${isActive ? 'text-blue-400' : 'group-hover:text-blue-400 transition-colors'}`}>
-                <Icon size={18} />
+                <Icon size={20} />
               </div>
               
-              <span className={`text-[11px] font-bold tracking-wider transition-all duration-200 ${
+              <span className={`text-[15px] md:text-[16px] font-black tracking-widest transition-all duration-200 ${
                 isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 pointer-events-none'
               }`}>
                 {func.label}

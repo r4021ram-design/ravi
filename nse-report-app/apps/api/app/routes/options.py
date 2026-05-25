@@ -51,23 +51,45 @@ async def get_options_data(symbol: str, expiry: Optional[str] = Query(None, desc
             try:
                 expiry_str = s.get("expiryDate")
                 if expiry_str and spot:
-                    expiry_date = datetime.strptime(expiry_str, "%d-%b-%Y")
-                    # Time to expiry in years, minimum 1 day to prevent div by zero
-                    days_to_expiry = (expiry_date - now).days
+                    # Robust date parsing
+                    expiry_date = None
+                    # Try multiple formats and handle case sensitivity
+                    for fmt in ["%d-%b-%Y", "%d-%m-%Y"]:
+                        try:
+                            expiry_date = datetime.strptime(expiry_str, fmt)
+                            break
+                        except ValueError:
+                            # Try again with capitalized month if it's %b
+                            if fmt == "%d-%b-%Y":
+                                try:
+                                    expiry_date = datetime.strptime(expiry_str.title(), fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            continue
+                    
+                    if not expiry_date:
+                        continue
+
+                    # Time to expiry in years, minimum 0.002 (approx 1 trading day) to prevent div by zero
+                    # Using date() comparison to avoid time-of-day issues
+                    days_to_expiry = (expiry_date.date() - now.date()).days
                     time_to_expiry_years = max(1, days_to_expiry) / 365.0
                     
                     if "CE" in s:
-                        iv = s["CE"].get("iv", 0) / 100.0
-                        if iv > 0:
-                            greeks = greeks_calculator.calculate_greeks(spot, s["strikePrice"], time_to_expiry_years, iv)
+                        ce_iv = s["CE"].get("iv", 0)
+                        if ce_iv > 0:
+                            greeks = greeks_calculator.calculate_greeks(spot, s["strikePrice"], time_to_expiry_years, ce_iv / 100.0)
                             s["CE"]["greeks"] = greeks["CE"]
                             
                     if "PE" in s:
-                        iv = s["PE"].get("iv", 0) / 100.0
-                        if iv > 0:
-                            greeks = greeks_calculator.calculate_greeks(spot, s["strikePrice"], time_to_expiry_years, iv)
+                        pe_iv = s["PE"].get("iv", 0)
+                        if pe_iv > 0:
+                            greeks = greeks_calculator.calculate_greeks(spot, s["strikePrice"], time_to_expiry_years, pe_iv / 100.0)
                             s["PE"]["greeks"] = greeks["PE"]
-            except Exception:
+            except Exception as e:
+                # Log error but continue with other strikes
+                print(f"Error calculating Greeks for strike {s.get('strikePrice')}: {e}")
                 pass
 
         # Assemble the response

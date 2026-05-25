@@ -7,9 +7,17 @@ import { Terminal } from "lucide-react";
 export function CommandBar() {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [placeholder, setPlaceholder] = useState("ENTER COMMAND (e.g., NIFTY INTEL, CC, HELP) or press / to focus");
   
   const { executeCommand, commandHistory, setCommandBarFocused } = useWorkspaceStore();
   const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Set placeholder on mount to avoid hydration mismatch
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setPlaceholder("SEARCH...");
+    }
+  }, []);
 
   // Global shortcut to focus command bar
   useEffect(() => {
@@ -67,8 +75,8 @@ export function CommandBar() {
           onKeyDown={handleKeyDown}
           onFocus={() => setCommandBarFocused(true)}
           onBlur={() => setCommandBarFocused(false)}
-          placeholder="ENTER COMMAND (e.g., NIFTY INTEL, CC, HELP) or press / to focus"
-          className="w-full bg-transparent text-amber-500 font-mono text-sm placeholder:text-gray-600 outline-none uppercase"
+          placeholder={placeholder}
+          className="w-full bg-transparent text-amber-500 font-mono text-base md:text-lg placeholder:text-gray-600 outline-none uppercase py-2 md:py-3"
           autoComplete="off"
           spellCheck="false"
         />
